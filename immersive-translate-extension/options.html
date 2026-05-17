@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Transly 设置</title>
+    <link rel="stylesheet" href="options.css">
+    <script src="content-core.js"></script>
+    <script src="options.js" defer></script>
+  </head>
+  <body>
+    <div class="options-shell">
+      <aside class="settings-sidebar" aria-label="设置导航">
+        <div class="brand">
+          <span class="brand-mark">T</span>
+          <div>
+            <strong>Transly</strong>
+            <small>沉浸式翻译设置</small>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item is-active" type="button" data-section-target="basic">基本设置</button>
+          <button class="nav-item" type="button" data-section-target="service">翻译服务</button>
+          <button class="nav-item" type="button" data-section-target="subtitle">视频字幕</button>
+          <button class="nav-item" type="button" data-section-target="siteRules">站点规则</button>
+          <button class="nav-item" type="button" data-section-target="input">输入框翻译</button>
+          <button class="nav-item" type="button" data-section-target="selection">划词翻译</button>
+          <button class="nav-item" type="button" data-section-target="hover">鼠标悬停</button>
+          <button class="nav-item" type="button" data-section-target="floating">悬浮球</button>
+          <button class="nav-item" type="button" data-section-target="shortcuts">快捷键</button>
+          <button class="nav-item" type="button" data-section-target="importExport">导入/导出</button>
+          <button class="nav-item" type="button" data-section-target="about">关于</button>
+        </nav>
+
+      </aside>
+
+      <main class="settings-main">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">Transly 设置中心</p>
+            <h1 id="sectionTitle">基本设置</h1>
+          </div>
+          <div class="header-actions">
+            <span id="saveStatus" class="save-status" role="status">正在读取设置</span>
+            <button id="saveSettings" class="primary-button" type="button">保存设置</button>
+          </div>
+        </header>
+
+        <section class="settings-section is-active" data-section="basic" aria-labelledby="basicTitle">
+          <div class="section-heading">
+            <h2 id="basicTitle">基本设置</h2>
+            <p>控制网页翻译的默认语言、展示形态、站点策略和本地缓存。</p>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>翻译默认值</h3>
+              <span>网页、划词和输入框共用</span>
+            </div>
+            <label class="setting-row">
+              <span>
+                <strong>启用 Transly</strong>
+                <small>关闭后不会主动翻译当前页面正文。</small>
+              </span>
+              <input id="enabled" type="checkbox">
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>目标语言</strong>
+                <small>译文默认输出语言。</small>
+              </span>
+              <select id="targetLanguage">
+                <option value="zh-CN">简体中文</option>
+                <option value="en">英语</option>
+                <option value="ja">日语</option>
+                <option value="ko">韩语</option>
+                <option value="fr">法语</option>
+                <option value="es">西班牙语</option>
+                <option value="de">德语</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>翻译服务</strong>
+                <small>可用服务会在翻译服务页展示状态。</small>
+              </span>
+              <select id="provider">
+                <option value="google">Google 免费接口</option>
+                <option value="custom">自定义 API</option>
+                <option value="demo">演示翻译</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>界面语言</strong>
+                <small>当前设置页和扩展弹窗显示语言。</small>
+              </span>
+              <select id="interfaceLanguage">
+                <option value="zh-CN">简体中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>翻译偏好</h3>
+              <span>性能、隐私和阅读习惯</span>
+            </div>
+            <label class="setting-row">
+              <span>
+                <strong>页面加载后自动翻译</strong>
+                <small>适合固定阅读外文站点，可配合站点列表使用。</small>
+              </span>
+              <input id="autoTranslate" type="checkbox">
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>只翻译可见正文</strong>
+                <small>滚动时继续补译，减少首屏等待。</small>
+              </span>
+              <input id="visibleOnly" type="checkbox">
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>同语言跳过翻译</strong>
+                <small>检测到文本已是目标语言时本地跳过。</small>
+              </span>
+              <input id="sameLanguageCheck" type="checkbox">
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>敏感文本保护</strong>
+                <small>检测到 token、邮箱、密钥等内容时阻止发送。</small>
+              </span>
+              <input id="sensitiveTextFilter" type="checkbox">
+            </label>
+            <div class="compact-grid">
+              <label>
+                <span>每页最多段落</span>
+                <input id="maxBlocks" type="number" min="5" max="250" step="5">
+              </label>
+              <label>
+                <span>并发请求数</span>
+                <input id="concurrency" type="number" min="1" max="10" step="1">
+              </label>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>译文显示</h3>
+              <span>接近沉浸式阅读，不打断原页面</span>
+            </div>
+            <div class="compact-grid">
+              <label>
+                <span>显示模式</span>
+                <select id="displayMode">
+                  <option value="dual">双语对照</option>
+                  <option value="translation">仅译文</option>
+                  <option value="original">仅原文，悬停看译文</option>
+                  <option value="replace">替换原文</option>
+                  <option value="hover">仅悬停翻译</option>
+                </select>
+              </label>
+              <label>
+                <span>译文样式</span>
+                <select id="translationTheme">
+                  <option value="muted">弱化侧线</option>
+                  <option value="marker">荧光标记</option>
+                  <option value="underline">下划线</option>
+                  <option value="none">无额外样式</option>
+                </select>
+              </label>
+              <label>
+                <span>同语言背景色</span>
+                <select id="sameLanguageBackground">
+                  <option value="none">不标记</option>
+                  <option value="soft">淡粉色提示</option>
+                  <option value="slate">灰蓝色提示</option>
+                </select>
+              </label>
+            </div>
+            <div id="stylePreview" class="style-preview" aria-label="译文显示样式预览">
+              <p>Original text keeps the page rhythm and typography.</p>
+              <p class="translated-line">译文以更轻的灰蓝文字显示，并用粉色强调当前选择的样式。</p>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>网站与语言规则</h3>
+              <span>当前作为本地设置保存，翻译执行仍以现有扩展能力为准</span>
+            </div>
+            <div class="textarea-grid">
+              <label>
+                <span>总是自动翻译网站</span>
+                <textarea id="alwaysTranslateDomains" spellcheck="false" placeholder="每行一个域名，例如：news.ycombinator.com"></textarea>
+              </label>
+              <label>
+                <span>不自动翻译网站</span>
+                <textarea id="neverAutoTranslateDomains" spellcheck="false" placeholder="每行一个域名，例如：github.com"></textarea>
+              </label>
+              <label>
+                <span>永不翻译语言</span>
+                <textarea id="neverTranslateLanguages" spellcheck="false" placeholder="每行一个语言代码，例如：zh-CN"></textarea>
+              </label>
+              <label>
+                <span>总是翻译语言</span>
+                <textarea id="alwaysTranslateLanguages" spellcheck="false" placeholder="每行一个语言代码，例如：en"></textarea>
+              </label>
+            </div>
+            <label class="full-field">
+              <span>永不翻译网站</span>
+              <textarea id="blockedDomains" spellcheck="false" placeholder="每行一个域名。这里会真正阻止该域名发送翻译请求。"></textarea>
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>本地维护</h3>
+              <span>只处理扩展本地设置与页面译文缓存</span>
+            </div>
+            <div class="button-row">
+              <button id="clearCache" class="secondary-button" type="button">清除缓存</button>
+              <button id="resetSettings" class="danger-button" type="button">重置设置</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="service" aria-labelledby="serviceTitle">
+          <div class="section-heading">
+            <h2 id="serviceTitle">翻译服务</h2>
+            <p>当前只保留通用可用服务：Google 网页翻译、自定义 API、演示模式。</p>
+          </div>
+
+          <div class="service-grid" aria-label="翻译服务列表">
+            <button class="service-tile" type="button" data-provider-choice="google">
+              <strong>Google</strong>
+              <span>免费接口 · 当前可用</span>
+            </button>
+            <button class="service-tile" type="button" data-provider-choice="custom">
+              <strong>自定义 API</strong>
+              <span>POST JSON · 当前可用</span>
+            </button>
+            <button class="service-tile" type="button" data-provider-choice="demo">
+              <strong>演示翻译</strong>
+              <span>本地演示 · 当前可用</span>
+            </button>
+          </div>
+
+          <div id="customProviderSettings" class="setting-group" hidden>
+            <div class="group-title">
+              <h3>自定义接口</h3>
+              <span>密钥保存在 chrome.storage.local，不进入同步设置</span>
+            </div>
+            <label class="setting-row field-row">
+              <span>
+                <strong>Endpoint</strong>
+                <small>需要接受 POST JSON：text、targetLanguage。</small>
+              </span>
+              <input id="customEndpoint" type="url" placeholder="https://api.example.com/translate">
+            </label>
+            <label class="setting-row field-row">
+              <span>
+                <strong>API Key</strong>
+                <small>发送时作为 Bearer token，错误提示会做脱敏。</small>
+              </span>
+              <input id="customApiKey" type="password" autocomplete="off" placeholder="sk-...">
+            </label>
+            <label class="setting-row field-row">
+              <span>
+                <strong>Model</strong>
+                <small>可选；`/chat/completions` 接口会使用该模型名。</small>
+              </span>
+              <input id="customModel" type="text" autocomplete="off" placeholder="gpt-4o-mini">
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>翻译备份流程</h3>
+              <span>按顺序尝试，前一个失败后自动切换下一个服务</span>
+            </div>
+            <label class="setting-row field-row">
+              <span>
+                <strong>服务顺序</strong>
+                <small>每行一个：google、custom、demo。默认优先 Google，再使用自定义 API。</small>
+              </span>
+              <textarea id="providerFallbackOrder" spellcheck="false" rows="3" placeholder="google&#10;custom"></textarea>
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>允许演示翻译兜底</strong>
+                <small>仅用于确认 UI 链路，真实翻译应优先使用 Google 或自定义 API。</small>
+              </span>
+              <input id="fallbackToDemo" type="checkbox">
+            </label>
+            <div class="button-row">
+              <button id="testService" class="primary-button" type="button">测试服务</button>
+              <span id="serviceStatus" class="inline-status">尚未测试</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="subtitle" aria-labelledby="subtitleTitle">
+          <div class="section-heading">
+            <h2 id="subtitleTitle">视频字幕</h2>
+            <p>在视频播放器字幕层中显示双语字幕，优先使用播放器原生字幕文本，不改变视频画面。</p>
+          </div>
+
+          <div class="subtitle-preview" aria-hidden="true">
+            <div class="subtitle-preview-player">
+              <span></span>
+              <div class="subtitle-preview-lines">
+                <strong>Welcome back to the lecture.</strong>
+                <em>欢迎回到这节课程。</em>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>字幕翻译</h3>
+              <span>YouTube 默认开启，其他播放器可按需启用</span>
+            </div>
+            <label class="setting-row">
+              <span>
+                <strong>启用视频字幕翻译</strong>
+                <small>开启后在受支持播放器中监听字幕变化并生成译文。</small>
+              </span>
+              <input id="videoSubtitleEnabled" type="checkbox">
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>YouTube 自动开启双语字幕</strong>
+                <small>YouTube 播放器出现英文等外文字幕时自动显示译文。</small>
+              </span>
+              <input id="videoSubtitleYouTubeEnabled" type="checkbox">
+            </label>
+            <label class="setting-row">
+              <span>
+                <strong>通用播放器字幕层支持</strong>
+                <small>支持 Video.js、Plyr、JW Player 等常见网页字幕层；默认关闭以减少误触发。</small>
+              </span>
+              <input id="videoSubtitleGenericEnabled" type="checkbox">
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>显示与服务</h3>
+              <span>字幕翻译使用和网页翻译相同的备份流程</span>
+            </div>
+            <div class="compact-grid">
+              <label>
+                <span>字幕显示模式</span>
+                <select id="videoSubtitleMode">
+                  <option value="dual">双语对照</option>
+                  <option value="translation">仅译文</option>
+                </select>
+              </label>
+              <label>
+                <span>字幕翻译服务</span>
+                <select id="videoSubtitleProvider">
+                  <option value="default">跟随网页翻译</option>
+                  <option value="google">Google 免费接口</option>
+                  <option value="custom">自定义 API</option>
+                  <option value="demo">演示翻译</option>
+                </select>
+              </label>
+            </div>
+            <div class="info-card">
+              <strong>当前实现范围</strong>
+              <span>支持可见字幕文本的双语显示、动态字幕变化、同语言跳过和本地缓存；不做音频识别，也不做平台账号相关能力。</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="siteRules">
+          <div class="section-heading"><h2>站点规则</h2><p>为 GitHub、文档站、论坛等页面配置正文选择器和排除区域。</p></div>
+          <div class="setting-group">
+            <label class="full-field">
+              <span>自定义站点规则 JSON</span>
+              <textarea id="userRules" spellcheck="false" placeholder='[{"id":"example","matches":["example.com"],"selectors":["article p"],"excludeSelectors":["nav","button"]}]'></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="input">
+          <div class="section-heading"><h2>输入框翻译</h2><p>配置当前已存在的输入框触发方式。</p></div>
+          <div class="setting-group">
+            <label class="setting-row"><span><strong>三连空格触发</strong><small>在输入框末尾快速按三次空格尝试翻译。</small></span><input id="tripleSpaceEnabled" type="checkbox"></label>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="selection">
+          <div class="section-heading"><h2>划词翻译</h2><p>选中网页文字后显示轻量翻译浮层。</p></div>
+          <div class="setting-group">
+            <label class="setting-row"><span><strong>启用划词翻译</strong><small>受敏感文本保护和当前翻译服务限制。</small></span><input id="selectionTranslateEnabled" type="checkbox"></label>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="hover">
+          <div class="section-heading"><h2>鼠标悬停</h2><p>悬停查看译文或学习模式下临时显示译文。</p></div>
+          <div class="setting-group">
+            <label class="setting-row"><span><strong>启用悬停翻译</strong><small>适合只在需要时查看译文。</small></span><input id="hoverTranslateEnabled" type="checkbox"></label>
+            <label class="setting-row"><span><strong>学习模式</strong><small>默认模糊译文，悬停后显示。</small></span><input id="translationMaskEnabled" type="checkbox"></label>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="floating">
+          <div class="section-heading"><h2>悬浮球</h2><p>网页右侧快捷入口。</p></div>
+          <div class="setting-group">
+            <label class="setting-row"><span><strong>显示悬浮球</strong><small>提供翻译、清除和打开侧边栏入口。</small></span><input id="floatingBallEnabled" type="checkbox"></label>
+            <label class="setting-row"><span><strong>缩小悬浮球</strong><small>使用更克制的小号入口，减少遮挡页面内容。</small></span><input id="floatingBallCompact" type="checkbox"></label>
+            <label class="full-field">
+              <span>不显示悬浮球的网站</span>
+              <textarea id="floatingBallBlockedDomains" spellcheck="false" placeholder="每行一个域名，例如：github.com"></textarea>
+              <small>只隐藏悬浮球，不会阻止网页翻译功能。</small>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="shortcuts">
+          <div class="section-heading"><h2>快捷键</h2><p>快捷键由浏览器扩展命令管理。</p></div>
+          <div class="shortcut-list">
+            <span>Alt + A：翻译网页/显示原文</span>
+            <span>Alt + W：翻译整页</span>
+            <span>Alt + S：打开侧边栏</span>
+            <span>Alt + I：翻译输入框</span>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="importExport">
+          <div class="section-heading"><h2>导入/导出</h2><p>导入导出配置 JSON，密钥不会出现在导出的同步设置里。</p></div>
+          <div class="setting-group">
+            <div class="button-row">
+              <button id="exportSettings" class="secondary-button" type="button">导出设置</button>
+              <button id="importSettings" class="secondary-button" type="button">导入设置</button>
+            </div>
+            <label class="full-field">
+              <span>设置 JSON</span>
+              <textarea id="settingsJson" spellcheck="false" placeholder="导出后会显示在这里；粘贴 JSON 后可导入。"></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="about">
+          <div class="section-heading"><h2>关于</h2><p>Transly 是本地优先的沉浸式网页翻译扩展。</p></div>
+          <div class="about-grid">
+            <div><strong>当前能力</strong><span>网页双语翻译、文本翻译、划词、悬停、输入框、悬浮球、侧边栏和站点规则。</span></div>
+            <div><strong>本地优先</strong><span>设置保存在浏览器存储；自定义 API Key 只保存在本机 local storage。</span></div>
+            <div><strong>能力边界</strong><span>当前聚焦通用网页翻译和可见字幕翻译；移动端、文档、图片 OCR 不在本版范围内。</span></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

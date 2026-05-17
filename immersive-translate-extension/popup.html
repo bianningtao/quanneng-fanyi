@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Transly 沉浸式翻译</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="popup-header">
+        <div class="brand-mark">T</div>
+        <div>
+          <h1>Transly 沉浸式翻译</h1>
+          <p>当前页面</p>
+        </div>
+        <span class="mode-pill">本地设置</span>
+      </header>
+
+      <section class="translator-card" aria-label="翻译设置">
+        <div class="language-grid">
+          <label class="language-card muted-card">
+            <span>源语言</span>
+            <select id="sourceLanguage">
+              <option value="auto">自动检测</option>
+              <option value="en">英语</option>
+              <option value="zh-CN">简体中文</option>
+              <option value="ja">日语</option>
+              <option value="ko">韩语</option>
+              <option value="fr">法语</option>
+              <option value="es">西班牙语</option>
+              <option value="de">德语</option>
+            </select>
+          </label>
+
+          <div class="language-arrow" aria-hidden="true">→</div>
+
+          <label class="language-card">
+            <span>目标语言</span>
+            <select id="targetLanguage">
+              <option value="zh-CN">简体中文</option>
+              <option value="en">英语</option>
+              <option value="ja">日语</option>
+              <option value="ko">韩语</option>
+              <option value="fr">法语</option>
+              <option value="es">西班牙语</option>
+              <option value="de">德语</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="service-card">
+          <span>
+            <strong>翻译服务</strong>
+            <small>当前页面使用的翻译提供方</small>
+          </span>
+          <select id="provider">
+            <option value="google">Google 网页翻译</option>
+            <option value="custom">自定义接口</option>
+            <option value="demo">演示模式</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="primary-actions" aria-label="页面翻译操作">
+        <button id="clearTranslations" class="icon-button" type="button">清除</button>
+        <button id="translatePage" class="primary-button" type="button">翻译</button>
+        <button id="translateWholePage" class="icon-button" type="button">整页</button>
+      </section>
+
+      <section class="mode-tools" aria-label="显示与学习工具">
+        <button id="toggleOnlyTranslation" class="tool-button" type="button">仅译文</button>
+        <button id="toggleTranslationMask" class="tool-button" type="button">学习模式</button>
+        <label class="mode-select">
+          <span>显示方式</span>
+          <select id="displayMode">
+            <option value="dual">双语对照</option>
+            <option value="translation">仅译文</option>
+            <option value="original">仅原文，悬停看译文</option>
+            <option value="replace">替换原文</option>
+            <option value="hover">仅悬停翻译</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="switch-list" aria-label="翻译开关">
+        <label class="toggle-row">
+          <span>
+            <strong>启用插件</strong>
+            <small>显示页面工具并接收翻译指令</small>
+          </span>
+          <span class="switch-control">
+            <input id="enabled" type="checkbox">
+            <span aria-hidden="true"></span>
+          </span>
+        </label>
+
+        <label class="toggle-row">
+          <span>
+            <strong>总是翻译该网站</strong>
+            <small>打开页面时按规则自动翻译</small>
+          </span>
+          <span class="switch-control">
+            <input id="autoTranslate" type="checkbox">
+            <span aria-hidden="true"></span>
+          </span>
+        </label>
+
+        <label class="toggle-row">
+          <span>
+            <strong>鼠标悬停</strong>
+            <small>悬停原文时展示译文</small>
+          </span>
+          <span class="switch-control">
+            <input id="hoverTranslateEnabled" type="checkbox">
+            <span aria-hidden="true"></span>
+          </span>
+        </label>
+
+        <label class="toggle-row">
+          <span>
+            <strong>划词翻译</strong>
+            <small>选中文本后显示翻译入口</small>
+          </span>
+          <span class="switch-control">
+            <input id="selectionTranslateEnabled" type="checkbox">
+            <span aria-hidden="true"></span>
+          </span>
+        </label>
+
+        <label class="toggle-row">
+          <span>
+            <strong>悬浮快捷按钮</strong>
+            <small>在页面右侧显示快捷入口</small>
+          </span>
+          <span class="switch-control">
+            <input id="floatingBallEnabled" type="checkbox">
+            <span aria-hidden="true"></span>
+          </span>
+        </label>
+      </section>
+
+      <section class="feature-grid" aria-label="更多翻译入口">
+        <button id="textTranslate" type="button">文本翻译</button>
+        <button id="openOptions" type="button">设置</button>
+        <button id="openSidePanel" type="button">侧边栏</button>
+      </section>
+
+      <footer class="bottom-bar">
+        <span id="versionLabel">版本</span>
+      </footer>
+
+      <p id="status" class="status" role="status">就绪</p>
+    </main>
+
+    <script src="content-core.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

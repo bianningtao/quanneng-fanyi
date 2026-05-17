@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Transly 侧边栏</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body>
+    <main class="side-shell">
+      <section class="workspace" aria-label="Transly 侧边栏工作台">
+        <div class="panel-stack">
+          <header class="side-header">
+            <div>
+              <p class="eyebrow">Transly</p>
+              <h1>翻译文本</h1>
+              <p id="pageDomain">正在读取当前页面</p>
+            </div>
+            <div class="brand-mark">T</div>
+          </header>
+
+          <section class="panel is-active" data-panel-tab="text">
+            <div class="translator-card">
+              <div class="language-row" aria-label="语言选择">
+                <label>
+                  <span>源语言</span>
+                  <select id="sourceLanguage">
+                    <option value="auto">自动检测</option>
+                    <option value="en">英语</option>
+                    <option value="zh-CN">简体中文</option>
+                    <option value="ja">日语</option>
+                    <option value="ko">韩语</option>
+                    <option value="fr">法语</option>
+                    <option value="es">西班牙语</option>
+                    <option value="de">德语</option>
+                  </select>
+                </label>
+                <span class="language-swap" aria-hidden="true">→</span>
+                <label>
+                  <span>目标语言</span>
+                  <select id="targetLanguage">
+                    <option value="zh-CN">简体中文</option>
+                    <option value="en">英语</option>
+                    <option value="ja">日语</option>
+                    <option value="ko">韩语</option>
+                    <option value="fr">法语</option>
+                    <option value="es">西班牙语</option>
+                    <option value="de">德语</option>
+                  </select>
+                </label>
+              </div>
+
+              <label class="text-tool">
+                <span>文本翻译</span>
+                <textarea id="textInput" placeholder="粘贴或输入要翻译的文本"></textarea>
+              </label>
+              <button id="translateText" class="primary translate-cta" type="button">翻译</button>
+              <output id="textOutput"></output>
+            </div>
+
+            <div class="quick-actions">
+              <div>
+                <strong>网页快捷操作</strong>
+                <small>保留当前页面翻译、整页翻译和清除译文能力</small>
+              </div>
+              <div class="action-grid">
+                <button id="translatePage" class="secondary" type="button">译网页</button>
+                <button id="translateWholePage" class="secondary" type="button">整页</button>
+                <button id="translateToEnd" class="secondary" type="button">到底部</button>
+                <button id="clearTranslations" class="secondary" type="button">清除</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel settings-panel" data-panel-tab="settings">
+            <div class="settings-group">
+              <h2>页面翻译</h2>
+              <label class="switch-row">
+                <span>
+                  <strong>启用插件</strong>
+                  <small>按当前站点规则翻译正文内容</small>
+                </span>
+                <input id="enabled" type="checkbox">
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>页面加载后自动翻译</strong>
+                  <small>适合固定阅读外文站点</small>
+                </span>
+                <input id="autoTranslate" type="checkbox">
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>浮动按钮</strong>
+                  <small>网页右侧快捷入口</small>
+                </span>
+                <input id="floatingBallEnabled" type="checkbox">
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>悬停翻译</strong>
+                  <small>悬停到已标记段落时显示译文</small>
+                </span>
+                <input id="hoverTranslateEnabled" type="checkbox">
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>选中文本翻译</strong>
+                  <small>选中网页文本后显示轻量浮层</small>
+                </span>
+                <input id="selectionTranslateEnabled" type="checkbox">
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>输入框三连空格翻译</strong>
+                  <small>在输入框末尾快速按三次空格触发</small>
+                </span>
+                <input id="tripleSpaceEnabled" type="checkbox">
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>学习模式遮罩</strong>
+                  <small>默认模糊译文，悬停后显示</small>
+                </span>
+                <input id="translationMaskEnabled" type="checkbox">
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>优先翻译可见正文</strong>
+                  <small>滚动时继续动态翻译，提升首屏速度</small>
+                </span>
+                <input id="visibleOnly" type="checkbox">
+              </label>
+            </div>
+
+            <div class="settings-group">
+              <h2>显示与服务</h2>
+              <label>
+                <span>显示模式</span>
+                <select id="displayMode">
+                  <option value="dual">双语对照</option>
+                  <option value="translation">仅译文</option>
+                  <option value="original">仅原文，悬停看译文</option>
+                  <option value="replace">替换原文</option>
+                  <option value="hover">仅悬停翻译</option>
+                </select>
+              </label>
+              <label>
+                <span>译文样式</span>
+                <select id="translationTheme">
+                  <option value="muted">弱化侧线</option>
+                  <option value="marker">荧光标记</option>
+                  <option value="underline">下划线</option>
+                  <option value="none">无样式</option>
+                </select>
+              </label>
+              <label>
+                <span>翻译服务</span>
+                <select id="provider">
+                  <option value="google">Google 网页翻译</option>
+                  <option value="custom">自定义 API</option>
+                  <option value="demo">演示模式</option>
+                </select>
+              </label>
+              <div id="customProviderSettings" class="custom-provider-settings" hidden>
+                <label>
+                  <span>自定义接口</span>
+                  <input id="customEndpoint" type="url" placeholder="https://api.example.com/translate">
+                </label>
+                <label>
+                  <span>接口密钥</span>
+                  <input id="customApiKey" type="password" placeholder="仅本地保存，不进入同步设置">
+                </label>
+                <label class="switch-row">
+                  <span>
+                    <strong>服务失败时使用演示译文</strong>
+                    <small>便于调试 UI 和站点规则</small>
+                  </span>
+                  <input id="fallbackToDemo" type="checkbox">
+                </label>
+                <p class="hint">API 密钥仅保存到本机浏览器本地存储；同步设置中不会写入密钥。</p>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <h2>规则与隐私</h2>
+              <article id="ruleSummary" class="rule-card">
+                <strong>站点规则</strong>
+                <span>正在读取当前站点</span>
+              </article>
+              <label>
+                <span>自定义规则 JSON</span>
+                <textarea id="userRules" spellcheck="false" placeholder='[{"id":"example","matches":["example.com"],"selectors":["article p"],"excludeSelectors":["nav","button"]}]'></textarea>
+              </label>
+              <label>
+                <span>屏蔽域名</span>
+                <textarea id="blockedDomains" spellcheck="false" placeholder="每行一个域名，例如：accounts.google.com"></textarea>
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>同语言跳过</strong>
+                  <small>目标语言和段落语言一致时不发送翻译请求</small>
+                </span>
+                <input id="sameLanguageCheck" type="checkbox">
+              </label>
+              <label class="switch-row">
+                <span>
+                  <strong>敏感文本过滤</strong>
+                  <small>邮箱、令牌、密钥等内容会在本地阻止发送</small>
+                </span>
+                <input id="sensitiveTextFilter" type="checkbox">
+              </label>
+              <div class="metric-grid">
+                <label>
+                  <span>最大块数</span>
+                  <input id="maxBlocks" type="number" min="5" max="250" step="5">
+                </label>
+                <label>
+                  <span>并发数</span>
+                  <input id="concurrency" type="number" min="1" max="10" step="1">
+                </label>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="tool-rail" aria-label="功能导航">
+          <nav class="rail-main">
+            <button class="rail-button tab is-active" type="button" data-tab-target="text">
+              <span>文</span>
+              <small>文本</small>
+            </button>
+          </nav>
+          <nav class="rail-footer" aria-label="底部入口">
+            <button class="rail-icon tab" type="button" data-tab-target="text" title="首页" aria-label="首页">首</button>
+            <button class="rail-icon tab" type="button" data-tab-target="settings" title="设置" aria-label="设置">设</button>
+          </nav>
+        </aside>
+      </section>
+
+      <footer class="footer-actions">
+        <button id="saveSettings" class="primary" type="button">保存设置</button>
+        <button id="openOptions" class="ghost" type="button">打开设置页</button>
+      </footer>
+
+      <p id="status" class="status" role="status">就绪</p>
+    </main>
+
+    <script src="content-core.js"></script>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
