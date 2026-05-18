@@ -25,12 +25,13 @@ Standalone Chrome Manifest V3 extension.
 - Selected text translation popover.
 - Triple-space input translation for text fields.
 - Video subtitle translation for visible YouTube captions and common HTML5 player caption layers, with bilingual or translation-only subtitle display.
+- Built-in and custom terminology glossaries. Simple custom APIs receive matched glossary entries; `/chat/completions` APIs receive the matched terms in the system message. Google/demo can only do light local correction when the translated result still contains the source term.
 - Providers: Google web translate, custom JSON API, and demo mode.
-- Custom API keys are stored in `chrome.storage.local`; synced settings do not contain the secret.
+- Custom API keys and custom glossary terms are stored in `chrome.storage.local`; synced settings do not contain those local-only values.
 
 ## Deferred feature modules
 
-The real Immersive Translate extension also includes PDF layout-preserving translation, EPUB bilingual export, image/manga OCR translation, glossary management, and AI writing assistants. Those are intentionally not marked complete here because they need dedicated parsers, OCR, service-side support, or much larger provider configuration.
+The real Immersive Translate extension also includes PDF layout-preserving translation, EPUB bilingual export, image/manga OCR translation, and AI writing assistants. Those are intentionally not marked complete here because they need dedicated parsers, OCR, service-side support, or much larger provider configuration.
 
 ## Research Notes
 
@@ -50,7 +51,10 @@ Custom provider requests:
 {
   "text": "Hello",
   "sourceLanguage": "auto",
-  "targetLanguage": "zh-CN"
+  "targetLanguage": "zh-CN",
+  "glossary": [
+    { "source": "LLM", "target": "大语言模型", "note": "", "domains": [] }
+  ]
 }
 ```
 

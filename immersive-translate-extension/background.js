@@ -3,6 +3,7 @@ importScripts("content-core.js");
 const core = self.TranslyCore;
 const SETTINGS_KEY = "translySettings";
 const SECRET_KEY = "translyCustomApiKey";
+const GLOSSARY_KEY = "translyCustomGlossaryTerms";
 const GOOGLE_TRANSLATE_ORIGIN = "https://translate.googleapis.com";
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -203,11 +204,18 @@ async function translateMessage(message, sender) {
       continue;
     }
     try {
-      const payload = await translateWithProvider(provider, validation.text, validation.settings);
+      const payload = await translateWithProvider(provider, validation.text, validation.settings, url);
       attempts.push({ provider, status: "success" });
       const failedAttempts = attempts.filter((attempt) => attempt.status === "failed");
+      const translatedText = core.applyGlossaryToTranslation(
+        payload.text,
+        validation.text,
+        validation.settings,
+        url
+      );
       return {
         ...payload,
+        text: translatedText,
         provider,
         providerOrder,
         attempts,
@@ -235,14 +243,19 @@ function sanitizeTranslationError(error, settings) {
 async function readSettingsForTranslation(incomingSettings) {
   const [syncStored, localStored] = await Promise.all([
     chrome.storage.sync.get([SETTINGS_KEY]),
-    chrome.storage.local.get([SECRET_KEY])
+    chrome.storage.local.get([SECRET_KEY, GLOSSARY_KEY])
   ]);
   const incoming = { ...(incomingSettings || {}) };
   delete incoming.customApiKey;
   return core.normalizeSettings({
     ...(syncStored[SETTINGS_KEY] || {}),
     ...incoming,
-    customApiKey: localStored[SECRET_KEY] || ""
+    customApiKey: localStored[SECRET_KEY] || "",
+    customGlossaryTerms:
+      localStored[GLOSSARY_KEY] ||
+      incoming.customGlossaryTerms ||
+      (syncStored[SETTINGS_KEY] && syncStored[SETTINGS_KEY].customGlossaryTerms) ||
+      []
   });
 }
 
@@ -256,9 +269,9 @@ function providerReadiness(provider, settings) {
   return { ok: true };
 }
 
-async function translateWithProvider(provider, text, settings) {
+async function translateWithProvider(provider, text, settings, url) {
   if (provider === "google") return translateWithGoogle(text, settings);
-  if (provider === "custom") return translateWithCustomProvider(text, settings);
+  if (provider === "custom") return translateWithCustomProvider(text, settings, url);
   if (provider === "demo") {
     return {
       text: core.buildDemoTranslation(text, settings.targetLanguage),
@@ -288,7 +301,7 @@ async function translateWithGoogle(text, settings) {
   };
 }
 
-async function translateWithCustomProvider(text, settings) {
+async function translateWithCustomProvider(text, settings, url) {
   if (!settings.customEndpoint) {
     throw new Error("自定义接口地址为空");
   }
@@ -301,7 +314,7 @@ async function translateWithCustomProvider(text, settings) {
   const response = await fetch(settings.customEndpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify(buildCustomProviderBody(text, settings))
+    body: JSON.stringify(buildCustomProviderBody(text, settings, url))
   });
 
   if (!response.ok) {
@@ -315,7 +328,9 @@ async function translateWithCustomProvider(text, settings) {
   };
 }
 
-function buildCustomProviderBody(text, settings) {
+function buildCustomProviderBody(text, settings, url) {
+  const glossary = core.resolveGlossaryTerms(text, settings, url);
+  const glossaryInstruction = core.buildGlossaryInstruction(text, settings, url);
   if (isChatCompletionsEndpoint(settings.customEndpoint)) {
     return {
       model: settings.customModel || "gpt-4o-mini",
@@ -326,8 +341,9 @@ function buildCustomProviderBody(text, settings) {
           content: [
             "You are a translation engine.",
             `Translate the user text into ${core.languageLabel(settings.targetLanguage)}.`,
+            glossaryInstruction,
             "Return only the translated text without explanation."
-          ].join(" ")
+          ].filter(Boolean).join(" ")
         },
         {
           role: "user",
@@ -339,7 +355,8 @@ function buildCustomProviderBody(text, settings) {
   return {
     text,
     sourceLanguage: settings.sourceLanguage,
-    targetLanguage: settings.targetLanguage
+    targetLanguage: settings.targetLanguage,
+    glossary
   };
 }
 

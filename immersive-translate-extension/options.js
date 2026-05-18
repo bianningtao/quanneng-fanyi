@@ -1,6 +1,7 @@
 const core = window.TranslyCore;
 const SETTINGS_KEY = "translySettings";
 const SECRET_KEY = "translyCustomApiKey";
+const GLOSSARY_KEY = "translyCustomGlossaryTerms";
 const READY_PROVIDERS = new Set(["google", "custom", "demo"]);
 
 const controls = {
@@ -35,6 +36,10 @@ const controls = {
   videoSubtitleGenericEnabled: document.querySelector("#videoSubtitleGenericEnabled"),
   videoSubtitleMode: document.querySelector("#videoSubtitleMode"),
   videoSubtitleProvider: document.querySelector("#videoSubtitleProvider"),
+  glossaryEnabled: document.querySelector("#glossaryEnabled"),
+  glossaryPresetGrid: document.querySelector("#glossaryPresetGrid"),
+  glossaryCustomTerms: document.querySelector("#glossaryCustomTerms"),
+  glossaryPreview: document.querySelector("#glossaryPreview"),
   translationMaskEnabled: document.querySelector("#translationMaskEnabled"),
   floatingBallEnabled: document.querySelector("#floatingBallEnabled"),
   floatingBallCompact: document.querySelector("#floatingBallCompact"),
@@ -56,6 +61,7 @@ const controls = {
 const sectionTitles = {
   basic: "基本设置",
   service: "翻译服务",
+  glossary: "术语库",
   siteRules: "站点规则",
   input: "输入框翻译",
   selection: "划词翻译",
@@ -120,6 +126,15 @@ function bindForm() {
     });
   });
 
+  if (controls.glossaryPresetGrid) {
+    controls.glossaryPresetGrid.addEventListener("change", (event) => {
+      const checkbox = event.target && event.target.closest("[data-glossary-id]");
+      if (!checkbox) return;
+      const card = checkbox.closest(".glossary-card");
+      if (card) card.classList.toggle("is-enabled", checkbox.checked);
+    });
+  }
+
   controls.saveSettings.addEventListener("click", () => persistFromForm(true));
   controls.provider.addEventListener("change", () => updateProviderFields(controls.provider.value));
   controls.clearCache.addEventListener("click", clearCache);
@@ -146,13 +161,15 @@ function isActionControl(name) {
 }
 
 async function loadSettings() {
-  const [stored, secret] = await Promise.all([
+  const [stored, secret, customGlossaryTerms] = await Promise.all([
     storageGet("sync", SETTINGS_KEY),
-    storageGet("local", SECRET_KEY)
+    storageGet("local", SECRET_KEY),
+    storageGet("local", GLOSSARY_KEY)
   ]);
   return normalizeOptionSettings({
     ...(stored || {}),
-    customApiKey: secret || ""
+    customApiKey: secret || "",
+    customGlossaryTerms: customGlossaryTerms || (stored && stored.customGlossaryTerms) || []
   });
 }
 
@@ -188,6 +205,9 @@ function applySettings(settings) {
   controls.videoSubtitleGenericEnabled.checked = settings.videoSubtitleGenericEnabled;
   controls.videoSubtitleMode.value = settings.videoSubtitleMode;
   controls.videoSubtitleProvider.value = settings.videoSubtitleProvider;
+  controls.glossaryEnabled.checked = settings.glossaryEnabled;
+  controls.glossaryCustomTerms.value = formatGlossaryTerms(settings.customGlossaryTerms);
+  renderGlossaryPresetGrid(settings);
   controls.translationMaskEnabled.checked = settings.translationMaskEnabled;
   controls.floatingBallEnabled.checked = settings.floatingBallEnabled;
   controls.floatingBallCompact.checked = settings.floatingBallCompact;
@@ -205,10 +225,11 @@ async function persistFromForm(forceStatus) {
     currentSettings = settings;
     await Promise.all([
       storageSet("sync", SETTINGS_KEY, publicSettings(settings)),
-      storageSet("local", SECRET_KEY, settings.customApiKey)
+      storageSet("local", SECRET_KEY, settings.customApiKey),
+      storageSet("local", GLOSSARY_KEY, settings.customGlossaryTerms)
     ]);
     updateServiceTiles(settings.provider);
-    notifySettingsChanged(settings);
+    notifySettingsChanged(runtimeSettings(settings));
     if (forceStatus) setStatus("已保存");
     else setStatus("已自动保存");
     return settings;
@@ -258,6 +279,9 @@ function collectSettings() {
     videoSubtitleGenericEnabled: controls.videoSubtitleGenericEnabled.checked,
     videoSubtitleMode: controls.videoSubtitleMode.value,
     videoSubtitleProvider: controls.videoSubtitleProvider.value,
+    glossaryEnabled: controls.glossaryEnabled.checked,
+    enabledGlossaryIds: selectedGlossaryIds(),
+    customGlossaryTerms: core.normalizeGlossaryTerms(controls.glossaryCustomTerms.value),
     translationMaskEnabled: controls.translationMaskEnabled.checked,
     floatingBallEnabled: controls.floatingBallEnabled.checked,
     floatingBallCompact: controls.floatingBallCompact.checked,
@@ -301,6 +325,50 @@ function parseLanguageLines(value) {
     .filter(Boolean);
 }
 
+function selectedGlossaryIds() {
+  if (!controls.glossaryPresetGrid) return currentSettings.enabledGlossaryIds || [];
+  return Array.from(controls.glossaryPresetGrid.querySelectorAll("[data-glossary-id]:checked"))
+    .map((input) => input.getAttribute("data-glossary-id"))
+    .filter(Boolean);
+}
+
+function formatGlossaryTerms(terms) {
+  const normalizedTerms = core.normalizeGlossaryTerms(terms);
+  if (normalizedTerms.some((term) => term.note || term.domains.length)) {
+    return JSON.stringify(normalizedTerms, null, 2);
+  }
+  return normalizedTerms.map((term) => `${term.source} => ${term.target}`).join("\n");
+}
+
+function renderGlossaryPresetGrid(settings) {
+  if (!controls.glossaryPresetGrid) return;
+  const enabledIds = new Set(settings.enabledGlossaryIds || []);
+  controls.glossaryPresetGrid.innerHTML = core.getBuiltInGlossaryBanks()
+    .map((bank) => {
+      const checked = enabledIds.has(bank.id);
+      const examples = bank.terms.slice(0, 3).map((term) => `${term.source}→${term.target}`).join(" / ");
+      return `
+        <label class="glossary-card ${checked ? "is-enabled" : ""}">
+          <span>
+            <strong>${escapeHtml(bank.name)}</strong>
+            <span>${escapeHtml(bank.description)}</span>
+          </span>
+          <input type="checkbox" data-glossary-id="${escapeHtml(bank.id)}" ${checked ? "checked" : ""}>
+          <small>${escapeHtml(bank.terms.length)} 个术语 · ${escapeHtml(examples)}</small>
+        </label>
+      `;
+    })
+    .join("");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function parseUserRules() {
   const raw = controls.userRules.value.trim();
   if (!raw) return [];
@@ -314,7 +382,11 @@ function parseUserRules() {
 }
 
 function publicSettings(settings) {
-  return { ...settings, customApiKey: "" };
+  return { ...settings, customApiKey: "", customGlossaryTerms: [] };
+}
+
+function runtimeSettings(settings) {
+  return { ...publicSettings(settings), customGlossaryTerms: settings.customGlossaryTerms };
 }
 
 async function clearCache() {
@@ -327,7 +399,8 @@ async function resetSettings() {
   currentSettings = createDefaultOptionSettings();
   await Promise.all([
     storageSet("sync", SETTINGS_KEY, publicSettings(currentSettings)),
-    storageRemove("local", SECRET_KEY)
+    storageRemove("local", SECRET_KEY),
+    storageRemove("local", GLOSSARY_KEY)
   ]);
   applySettings(currentSettings);
   setStatus("已重置为默认设置");
@@ -351,7 +424,7 @@ async function testService() {
       type: "TRANSLY_TRANSLATE",
       text: "Hello, this is a Transly service test.",
       url: "https://example.com/transly-service-test",
-      settings: publicSettings(settings)
+      settings: runtimeSettings(settings)
     });
     if (!response || response.ok === false) {
       throw new Error((response && response.error) || "服务测试失败");
@@ -427,7 +500,7 @@ async function notifySettingsChanged(settings) {
   try {
     await chrome.runtime.sendMessage({
       type: "TRANSLY_SETTINGS_CHANGED",
-      settings: publicSettings(settings)
+      settings
     });
   } catch (error) {
     // Options pages can be opened on restricted browser screens where no content script is available.

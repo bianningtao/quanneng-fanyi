@@ -1,6 +1,7 @@
 const core = window.TranslyCore;
 const SETTINGS_KEY = "translySettings";
 const SECRET_KEY = "translyCustomApiKey";
+const GLOSSARY_KEY = "translyCustomGlossaryTerms";
 const UI_LANGUAGE = "zh-CN";
 
 const controls = {
@@ -111,13 +112,19 @@ function bindActions() {
 }
 
 async function loadSettings() {
-  const [stored, secret] = await Promise.all([
+  const [stored, secret, customGlossaryTerms] = await Promise.all([
     chrome.storage.sync.get([SETTINGS_KEY]),
-    chrome.storage.local.get([SECRET_KEY])
+    chrome.storage.local.get([SECRET_KEY]),
+    chrome.storage.local.get([GLOSSARY_KEY])
   ]);
+  const syncSettings = stored[SETTINGS_KEY] || {};
   return core.normalizeSettings({
-    ...(stored[SETTINGS_KEY] || {}),
-    customApiKey: secret[SECRET_KEY] || ""
+    ...syncSettings,
+    customApiKey: secret[SECRET_KEY] || "",
+    customGlossaryTerms:
+      customGlossaryTerms[GLOSSARY_KEY] ||
+      syncSettings.customGlossaryTerms ||
+      []
   });
 }
 
@@ -185,7 +192,7 @@ async function persistSettings() {
     chrome.storage.sync.set({ [SETTINGS_KEY]: publicSettings(settings) }),
     chrome.storage.local.set({ [SECRET_KEY]: settings.customApiKey })
   ]);
-  notifyActiveTab("TRANSLY_SETTINGS_CHANGED", { settings: publicSettings(settings) });
+  notifyActiveTab("TRANSLY_SETTINGS_CHANGED", { settings: runtimeSettings(settings) });
   await refreshPageInfo();
   setStatus("已保存");
   return settings;
@@ -218,7 +225,11 @@ function validateRulesOnly() {
 }
 
 function publicSettings(settings) {
-  return { ...settings, customApiKey: "" };
+  return { ...settings, customApiKey: "", customGlossaryTerms: [] };
+}
+
+function runtimeSettings(settings) {
+  return { ...publicSettings(settings), customGlossaryTerms: settings.customGlossaryTerms };
 }
 
 function updateProviderFields(provider) {

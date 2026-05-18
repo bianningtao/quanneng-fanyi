@@ -498,6 +498,77 @@ input[type="checkbox"]:checked::before {
   color: #ffd2e5;
 }
 
+.glossary-hero {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 79, 154, 0.24);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 79, 154, 0.1), transparent 34%),
+    rgba(17, 23, 34, 0.74);
+  padding: 18px;
+}
+
+.glossary-hero div {
+  display: grid;
+  gap: 6px;
+}
+
+.glossary-hero span {
+  color: #ffd2e5;
+}
+
+.glossary-hero i {
+  border: 1px solid rgba(255, 79, 154, 0.32);
+  border-radius: 999px;
+  background: rgba(255, 79, 154, 0.1);
+  color: #ff9bc3;
+  font-style: normal;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.glossary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 16px;
+}
+
+.glossary-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 14px;
+  min-height: 104px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(12, 17, 26, 0.72);
+  padding: 14px;
+}
+
+.glossary-card.is-enabled {
+  border-color: rgba(255, 79, 154, 0.62);
+  background: rgba(255, 79, 154, 0.1);
+}
+
+.glossary-card strong,
+.glossary-card span,
+.glossary-card small {
+  display: block;
+}
+
+.glossary-card span {
+  color: var(--muted);
+}
+
+.glossary-card small {
+  grid-column: 1 / -1;
+  color: #8fb3c8;
+}
+
 .info-card {
   display: grid;
   gap: 6px;
@@ -650,7 +721,12 @@ input[type="checkbox"]:checked::before {
   .compact-grid,
   .textarea-grid,
   .service-grid,
+  .glossary-grid,
   .about-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .glossary-hero {
     grid-template-columns: 1fr;
   }
 

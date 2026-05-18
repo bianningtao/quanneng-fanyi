@@ -22,6 +22,7 @@
         <nav class="nav-list">
           <button class="nav-item is-active" type="button" data-section-target="basic">基本设置</button>
           <button class="nav-item" type="button" data-section-target="service">翻译服务</button>
+          <button class="nav-item" type="button" data-section-target="glossary">术语库</button>
           <button class="nav-item" type="button" data-section-target="subtitle">视频字幕</button>
           <button class="nav-item" type="button" data-section-target="siteRules">站点规则</button>
           <button class="nav-item" type="button" data-section-target="input">输入框翻译</button>
@@ -300,6 +301,58 @@
             <div class="button-row">
               <button id="testService" class="primary-button" type="button">测试服务</button>
               <span id="serviceStatus" class="inline-status">尚未测试</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section" data-section="glossary" aria-labelledby="glossaryTitle">
+          <div class="section-heading">
+            <h2 id="glossaryTitle">AI 术语库</h2>
+            <p>固定特定词汇的译法，尽量让同一个术语在网页、划词、输入框和字幕翻译中保持一致。</p>
+          </div>
+
+          <div class="glossary-hero" aria-hidden="true">
+            <div>
+              <strong>LLM agents write prompt templates.</strong>
+              <span>大语言模型智能体编写提示词模板。</span>
+            </div>
+            <i>LLM => 大语言模型</i>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>术语库开关</h3>
+              <span>自定义术语保存在本机；自定义 API 可收到严格术语提示</span>
+            </div>
+            <label class="setting-row">
+              <span>
+                <strong>启用术语库</strong>
+                <small>翻译前只选出当前文本命中的术语，避免每次发送整库。</small>
+              </span>
+              <input id="glossaryEnabled" type="checkbox">
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>预制术语库</h3>
+              <span>默认开启“默认”和“推荐”，可按内容领域追加</span>
+            </div>
+            <div id="glossaryPresetGrid" class="glossary-grid" aria-label="预制术语库"></div>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>自定义术语</h3>
+              <span>支持 source => target，也支持 JSON 数组保留 domains 与 note</span>
+            </div>
+            <label class="full-field">
+              <span>术语映射</span>
+              <textarea id="glossaryCustomTerms" spellcheck="false" placeholder="Model Context Protocol => 模型上下文协议&#10;release notes => 更新日志"></textarea>
+            </label>
+            <div id="glossaryPreview" class="info-card">
+              <strong>当前匹配方式</strong>
+              <span>术语库会按最长术语优先匹配。自定义 API 会得到结构化术语或系统提示；Google 免费接口不支持原生术语表，仅在译文仍保留源词时做轻量替换。</span>
             </div>
           </div>
         </section>

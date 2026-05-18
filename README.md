@@ -8,4 +8,4 @@ Load this folder in Chrome:
 immersive-translate-extension/
 ```
 
-The extension implements low-intrusion paragraph bilingual translation, site-specific rules, hover translation, text-selection translation, triple-space input translation, a Chrome side panel, context menus, and keyboard shortcuts.
+The extension implements low-intrusion paragraph bilingual translation, site-specific rules, terminology glossaries, hover translation, text-selection translation, triple-space input translation, video subtitle translation, a Chrome side panel, context menus, and keyboard shortcuts.

@@ -1,6 +1,7 @@
 (function bootstrapTranslyImmersive() {
   const core = window.TranslyCore;
   const SETTINGS_KEY = "translySettings";
+  const GLOSSARY_KEY = "translyCustomGlossaryTerms";
   const translatedAttribute = "data-transly-translated";
   const originalTextAttribute = "data-transly-original-text";
   const originalHtmlAttribute = "data-transly-original-html";
@@ -233,6 +234,7 @@
       }
       if (message.type === "TRANSLY_SETTINGS_CHANGED") {
         state.settings = core.normalizeSettings(message.settings);
+        state.cache.clear();
         state.messages = core.getUiMessages(state.settings.interfaceLanguage);
         state.rule = core.getSiteRule(location.href, state.settings.userRules);
         state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings);
@@ -246,8 +248,20 @@
   }
 
   async function loadSettings() {
-    const stored = await chrome.storage.sync.get([SETTINGS_KEY]);
-    return core.normalizeSettings(stored[SETTINGS_KEY]);
+    const [stored, localStored] = await Promise.all([
+      chrome.storage.sync.get([SETTINGS_KEY]),
+      chrome.storage.local && chrome.storage.local.get
+        ? chrome.storage.local.get([GLOSSARY_KEY])
+        : Promise.resolve({})
+    ]);
+    const syncSettings = stored[SETTINGS_KEY] || {};
+    return core.normalizeSettings({
+      ...syncSettings,
+      customGlossaryTerms:
+        localStored[GLOSSARY_KEY] ||
+        syncSettings.customGlossaryTerms ||
+        []
+    });
   }
 
   function shouldAutoTranslateCurrentPage(settings) {
@@ -805,7 +819,16 @@
 
   async function translateText(text, overrideSettings) {
     const requestSettings = overrideSettings || state.settings;
-    const key = `${requestSettings.provider}:${requestSettings.targetLanguage}:${text}`;
+    const key = [
+      requestSettings.provider,
+      requestSettings.sourceLanguage,
+      requestSettings.targetLanguage,
+      requestSettings.providerFallbackOrder.join(">"),
+      requestSettings.customEndpoint,
+      String(Boolean(requestSettings.fallbackToDemo)),
+      core.glossaryFingerprint(requestSettings),
+      text
+    ].join(":");
     if (state.cache.has(key)) return state.cache.get(key);
 
     const response = await chrome.runtime.sendMessage({
@@ -817,7 +840,9 @@
     if (!response || !response.ok) {
       throw new Error((response && response.error) || "翻译失败");
     }
-    state.cache.set(key, response.text);
+    if (!response.provider || response.provider === requestSettings.provider) {
+      state.cache.set(key, response.text);
+    }
     return response.text;
   }
 
@@ -1129,7 +1154,7 @@
   async function saveSettings(settings) {
     state.settings = core.normalizeSettings(settings);
     await chrome.storage.sync.set({ [SETTINGS_KEY]: publicSettings(state.settings) });
-    chrome.runtime.sendMessage({ type: "TRANSLY_SETTINGS_CHANGED", settings: publicSettings(state.settings) });
+    chrome.runtime.sendMessage({ type: "TRANSLY_SETTINGS_CHANGED", settings: runtimeSettings(state.settings) });
   }
 
   function openFloatingSettingsDialog() {
@@ -1299,7 +1324,11 @@
   }
 
   function publicSettings(settings) {
-    return { ...settings, customApiKey: "" };
+    return { ...settings, customApiKey: "", customGlossaryTerms: [] };
+  }
+
+  function runtimeSettings(settings) {
+    return { ...publicSettings(settings), customGlossaryTerms: settings.customGlossaryTerms };
   }
 
   function getPageInfo() {
