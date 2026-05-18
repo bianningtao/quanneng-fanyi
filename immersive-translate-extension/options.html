@@ -169,9 +169,27 @@
               <label>
                 <span>译文样式</span>
                 <select id="translationTheme">
-                  <option value="muted">弱化侧线</option>
-                  <option value="marker">荧光标记</option>
                   <option value="underline">下划线</option>
+                  <option value="muted">弱化侧线</option>
+                  <option value="dotted">虚线下划线</option>
+                  <option value="wavy">波浪线</option>
+                  <option value="marker">荧光标记</option>
+                  <option value="marker2">马克笔</option>
+                  <option value="highlight">高亮</option>
+                  <option value="quote">引用样式</option>
+                  <option value="boxed">实线边框</option>
+                  <option value="virtual">虚线边框</option>
+                  <option value="shadow">白纸阴影</option>
+                  <option value="blur">模糊效果</option>
+                  <option value="transparent">透明效果</option>
+                  <option value="dim">弱化</option>
+                  <option value="dark">黑灰色</option>
+                  <option value="italic">斜体</option>
+                  <option value="bold">加粗</option>
+                  <option value="separator">分割线</option>
+                  <option value="custom-dotted">系统点状下划线</option>
+                  <option value="custom-solid">系统直线下划线</option>
+                  <option value="custom-background">背景色</option>
                   <option value="none">无额外样式</option>
                 </select>
               </label>
@@ -188,6 +206,36 @@
               <p>Original text keeps the page rhythm and typography.</p>
               <p class="translated-line">译文以更轻的灰蓝文字显示，并用粉色强调当前选择的样式。</p>
             </div>
+            <div class="style-custom-grid" aria-label="自定义颜色和大小">
+              <label>
+                <span>译文字体颜色</span>
+                <input id="translationTextColor" type="text" placeholder="#2c8aa3">
+              </label>
+              <label>
+                <span>译文背景颜色</span>
+                <input id="translationBackgroundColor" type="text" placeholder="#fff2aa">
+              </label>
+              <label>
+                <span>字体缩放比例（%）</span>
+                <input id="translationFontScale" type="number" min="70" max="160" step="5">
+              </label>
+              <label>
+                <span>最大宽度（px）</span>
+                <input id="translationMaxWidth" type="number" min="0" max="1200" step="20" placeholder="0 表示自适应">
+              </label>
+              <label>
+                <span>译文字体</span>
+                <select id="translationFontFamily">
+                  <option value="">跟随网页</option>
+                  <option value="system">系统无衬线</option>
+                  <option value="serif">衬线字体</option>
+                  <option value="sans">清爽无衬线</option>
+                  <option value="mono">等宽字体</option>
+                  <option value="rounded">圆角字体</option>
+                </select>
+              </label>
+            </div>
+            <div id="stylePresetGrid" class="style-preset-grid" aria-label="预览全部样式"></div>
           </div>
 
           <div class="setting-group">
@@ -571,6 +619,29 @@
           <div class="setting-group">
             <label class="setting-row"><span><strong>显示悬浮球</strong><small>提供翻译、清除和打开侧边栏入口。</small></span><input id="floatingBallEnabled" type="checkbox"></label>
             <label class="setting-row"><span><strong>缩小悬浮球</strong><small>使用更克制的小号入口，减少遮挡页面内容。</small></span><input id="floatingBallCompact" type="checkbox"></label>
+            <label class="setting-row"><span><strong>未触发时隐藏侧栏按钮</strong><small>刚开始只显示一个悬浮球，鼠标悬停后再显示附加按钮。</small></span><input id="floatingBallHoverOnly" type="checkbox"></label>
+            <div class="compact-grid">
+              <label>
+                <span>点击行为</span>
+                <select id="floatingBallClickAction">
+                  <option value="toggle">翻译/显示原文</option>
+                  <option value="translate">仅翻译</option>
+                  <option value="showOriginal">仅显示原文</option>
+                  <option value="sidepanel">打开侧边栏</option>
+                </select>
+              </label>
+              <label>
+                <span>固定位置</span>
+                <select id="floatingBallPosition">
+                  <option value="right">右侧</option>
+                  <option value="left">左侧</option>
+                </select>
+              </label>
+              <label>
+                <span>透明度</span>
+                <input id="floatingBallOpacity" type="number" min="0" max="100" step="5">
+              </label>
+            </div>
             <label class="full-field">
               <span>不显示悬浮球的网站</span>
               <textarea id="floatingBallBlockedDomains" spellcheck="false" placeholder="每行一个域名，例如：github.com"></textarea>

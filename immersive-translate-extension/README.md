@@ -13,13 +13,13 @@ Standalone Chrome Manifest V3 extension.
 
 - Chinese-first popup with basic Chrome i18n manifest metadata.
 - Persistent Chinese side panel for webpage controls, display settings, site-rule inspection, custom rules, service settings, and free text translation.
-- Paragraph-level bilingual translation with low-intrusion themes: muted line, marker, underline, or none.
+- Paragraph-level bilingual translation with low-intrusion and custom styles: underline, dotted/wavy underline, quote line, marker/highlight, boxed, shadow, blur, dim, and custom color/font/width controls.
 - Display modes: bilingual, translation only, original only with hover, replace original, and hover only.
 - Learning mode masks translations with blur until hover.
 - Site-specific rules for GitHub/Twitter/Reddit/StackOverflow/Medium/YouTube/ChatGPT-style pages. GitHub repository file rows, filenames, buttons, code, and navigation are excluded; README and issue/discussion text are targeted.
 - User rules can be added as JSON with `matches`, `selectors`, `excludeSelectors`, and `stayOriginalSelectors`.
 - Visible-content-first translation, scroll-triggered dynamic translation, in-memory cache, and configurable concurrency for faster first results.
-- Floating in-page translate controls: page, whole page, translation-only toggle, learning mask, side panel, and clear.
+- Floating in-page translate controls with icon-only dock, hover reveal, close/settings dialog, configurable click behavior, side position, opacity, compact mode, and site-level hiding.
 - Chrome context menus for page translation, whole-page translation, selection translation, side panel, and learning mode.
 - Keyboard commands: `Alt+A` page toggle, `Alt+W` whole page, `Alt+S` side panel, and `Alt+I` active input translation.
 - Selected text translation popover.

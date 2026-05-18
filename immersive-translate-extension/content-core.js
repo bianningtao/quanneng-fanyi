@@ -65,8 +65,35 @@
   const DISPLAY_MODES = new Set(["dual", "translation", "original", "replace", "hover"]);
   const SUBTITLE_MODES = new Set(["dual", "translation"]);
   const SUBTITLE_PROVIDERS = new Set(["default", "google", "microsoft", "custom", "demo"]);
-  const TRANSLATION_THEMES = new Set(["muted", "marker", "underline", "none"]);
+  const TRANSLATION_THEME_OPTIONS = [
+    { id: "none", label: "无" },
+    { id: "muted", label: "弱化侧线" },
+    { id: "underline", label: "直线下划线" },
+    { id: "dotted", label: "虚线下划线" },
+    { id: "wavy", label: "波浪线" },
+    { id: "marker", label: "荧光标记" },
+    { id: "marker2", label: "马克笔" },
+    { id: "highlight", label: "高亮" },
+    { id: "quote", label: "引用样式" },
+    { id: "boxed", label: "实线边框" },
+    { id: "virtual", label: "虚线边框" },
+    { id: "shadow", label: "白纸阴影" },
+    { id: "blur", label: "模糊效果" },
+    { id: "transparent", label: "透明效果" },
+    { id: "dim", label: "弱化" },
+    { id: "dark", label: "黑灰色" },
+    { id: "italic", label: "斜体" },
+    { id: "bold", label: "加粗" },
+    { id: "separator", label: "分割线" },
+    { id: "custom-dotted", label: "系统自带点状下划线" },
+    { id: "custom-solid", label: "系统自带直线下划线" },
+    { id: "custom-background", label: "背景色" }
+  ];
+  const TRANSLATION_THEMES = new Set(TRANSLATION_THEME_OPTIONS.map((option) => option.id));
   const INTERFACE_LANGUAGES = new Set(["zh-CN", "en"]);
+  const FLOATING_CLICK_ACTIONS = new Set(["toggle", "translate", "showOriginal", "sidepanel"]);
+  const FLOATING_POSITIONS = new Set(["right", "left"]);
+  const TRANSLATION_FONT_FAMILIES = new Set(["", "system", "serif", "sans", "mono", "rounded"]);
   const SERVICE_ENGINE_TYPES = new Set(["google", "microsoft", "openai-compatible", "custom-json", "demo"]);
   const SERVICE_ENGINE_GROUPS = new Set(["free", "custom"]);
   const DEFAULT_ENGINE_PROMPTS = {
@@ -590,12 +617,21 @@
       interfaceLanguage: "zh-CN",
       displayMode: "dual",
       translationTheme: "muted",
+      translationTextColor: "",
+      translationBackgroundColor: "",
+      translationFontScale: 100,
+      translationMaxWidth: 0,
+      translationFontFamily: "",
       autoTranslate: false,
       tripleSpaceEnabled: true,
       selectionTranslateEnabled: true,
       hoverTranslateEnabled: false,
       floatingBallEnabled: true,
       floatingBallCompact: false,
+      floatingBallHoverOnly: true,
+      floatingBallClickAction: "toggle",
+      floatingBallPosition: "right",
+      floatingBallOpacity: 30,
       floatingBallBlockedDomains: [],
       translationMaskEnabled: false,
       maxBlocks: 80,
@@ -659,6 +695,23 @@
     const concurrency = Number.isFinite(Number(raw.concurrency))
       ? Math.min(10, Math.max(1, Number(raw.concurrency)))
       : defaults.concurrency;
+    const floatingBallClickAction = FLOATING_CLICK_ACTIONS.has(raw.floatingBallClickAction)
+      ? raw.floatingBallClickAction
+      : defaults.floatingBallClickAction;
+    const floatingBallPosition = FLOATING_POSITIONS.has(raw.floatingBallPosition)
+      ? raw.floatingBallPosition
+      : defaults.floatingBallPosition;
+    const floatingBallOpacity = clampNumber(raw.floatingBallOpacity, defaults.floatingBallOpacity, 0, 100);
+    const translationTextColor = normalizeHexColor(raw.translationTextColor, defaults.translationTextColor);
+    const translationBackgroundColor = normalizeHexColor(
+      raw.translationBackgroundColor,
+      defaults.translationBackgroundColor
+    );
+    const translationFontScale = clampNumber(raw.translationFontScale, defaults.translationFontScale, 70, 160);
+    const translationMaxWidth = clampNumber(raw.translationMaxWidth, defaults.translationMaxWidth, 0, 1200);
+    const translationFontFamily = TRANSLATION_FONT_FAMILIES.has(raw.translationFontFamily)
+      ? raw.translationFontFamily
+      : defaults.translationFontFamily;
 
     return {
       ...defaults,
@@ -672,6 +725,11 @@
       interfaceLanguage,
       displayMode,
       translationTheme,
+      translationTextColor,
+      translationBackgroundColor,
+      translationFontScale,
+      translationMaxWidth,
+      translationFontFamily,
       autoTranslate: typeof raw.autoTranslate === "boolean" ? raw.autoTranslate : defaults.autoTranslate,
       tripleSpaceEnabled:
         typeof raw.tripleSpaceEnabled === "boolean"
@@ -693,6 +751,13 @@
         typeof raw.floatingBallCompact === "boolean"
           ? raw.floatingBallCompact
           : defaults.floatingBallCompact,
+      floatingBallHoverOnly:
+        typeof raw.floatingBallHoverOnly === "boolean"
+          ? raw.floatingBallHoverOnly
+          : defaults.floatingBallHoverOnly,
+      floatingBallClickAction,
+      floatingBallPosition,
+      floatingBallOpacity,
       translationMaskEnabled:
         typeof raw.translationMaskEnabled === "boolean"
           ? raw.translationMaskEnabled
@@ -748,6 +813,27 @@
     const normalized = String(value || "").trim().toLowerCase();
     if (!normalized) return fallback || "google";
     return normalized;
+  }
+
+  function clampNumber(value, fallback, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(number)));
+  }
+
+  function normalizeHexColor(value, fallback) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return fallback || "";
+    const short = normalized.match(/^#([0-9a-f]{3})$/i);
+    if (short) {
+      return `#${short[1].split("").map((char) => `${char}${char}`).join("")}`;
+    }
+    if (/^#[0-9a-f]{6}$/i.test(normalized)) return normalized;
+    return fallback || "";
+  }
+
+  function getTranslationThemeOptions() {
+    return TRANSLATION_THEME_OPTIONS.map((option) => ({ ...option }));
   }
 
   function normalizeProviderOrder(value, serviceEngines) {
@@ -1594,6 +1680,7 @@
     resolveServiceEngine,
     serviceEngineFingerprint,
     getBuiltInGlossaryBanks,
+    getTranslationThemeOptions,
     normalizeGlossaryTerms,
     resolveGlossaryTerms,
     buildGlossaryInstruction,

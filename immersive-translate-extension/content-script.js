@@ -311,7 +311,7 @@
       if (!target) return;
       const action = target.getAttribute("data-action");
       if (action === "translate") {
-        togglePageTranslation();
+        handleFloatingMainAction();
       }
       if (action === "mask") {
         toggleTranslationMask();
@@ -385,6 +385,12 @@
     state.panel.classList.toggle("is-disabled", !state.settings.enabled);
     state.panel.classList.toggle("is-mask-on", state.settings.translationMaskEnabled);
     state.panel.classList.toggle("is-compact", state.settings.floatingBallCompact);
+    state.panel.classList.toggle("is-hover-only", state.settings.floatingBallHoverOnly);
+    state.panel.setAttribute("data-position", state.settings.floatingBallPosition);
+    state.panel.style.setProperty(
+      "--transly-floating-idle-opacity",
+      String(Math.min(1, Math.max(0, (100 - state.settings.floatingBallOpacity) / 100)))
+    );
     const mainButton = state.panel.querySelector(".transly-panel-main");
     const tooltip = state.panel.querySelector(".transly-panel-tooltip");
     if (mainButton) updateActionLabel(mainButton);
@@ -435,9 +441,36 @@
     button.setAttribute("aria-label", label);
   }
 
+  function handleFloatingMainAction() {
+    const action = state.settings.floatingBallClickAction || "toggle";
+    if (action === "sidepanel") {
+      chrome.runtime.sendMessage({ type: "TRANSLY_OPEN_SIDE_PANEL" });
+      setStatus(state.messages.openSidePanel);
+      return;
+    }
+    if (action === "translate") {
+      translatePage();
+      return;
+    }
+    if (action === "showOriginal") {
+      if (state.pageTranslated) {
+        clearTranslations();
+      } else {
+        setStatus(state.messages.currentTranslated);
+      }
+      return;
+    }
+    togglePageTranslation();
+  }
+
   function panelTooltipText(action) {
     if (action === "options") return "打开设置页";
     if (action === "translate") {
+      if (state.settings.floatingBallClickAction === "sidepanel") return "点击打开侧边栏";
+      if (state.settings.floatingBallClickAction === "translate") {
+        return `点击翻译为${core.languageLabel(state.settings.targetLanguage)}`;
+      }
+      if (state.settings.floatingBallClickAction === "showOriginal") return "点击切换回原文";
       return state.pageTranslated
         ? "点击切换回原文"
         : `点击翻译为${core.languageLabel(state.settings.targetLanguage)}`;
@@ -1034,6 +1067,7 @@
     element.setAttribute(translatedAttribute, "true");
     element.setAttribute("data-transly-theme", state.settings.translationTheme);
     element.setAttribute("data-transly-same-language-background", sameLanguageBackground);
+    applyCustomTranslationStyles(element);
     removeTranslationWrappers(element);
 
     if (mode === "original") {
@@ -1080,6 +1114,7 @@
     wrapper.className = "transly-translation-wrapper";
     wrapper.setAttribute("data-transly-owned", "true");
     wrapper.setAttribute("data-transly-theme", state.settings.translationTheme);
+    applyCustomTranslationStyles(wrapper);
 
     const translationNode = document.createElement("span");
     translationNode.className = "transly-translation";
@@ -1088,6 +1123,46 @@
     translationNode.textContent = translation;
     wrapper.appendChild(translationNode);
     return wrapper;
+  }
+
+  function applyCustomTranslationStyles(element) {
+    if (!element || !element.style) return;
+    setOrRemoveStyleProperty(element, "--transly-translation-color", state.settings.translationTextColor);
+    setOrRemoveStyleProperty(element, "--transly-translation-bg", state.settings.translationBackgroundColor);
+    const scale = Number(state.settings.translationFontScale || 100) / 100;
+    setOrRemoveStyleProperty(element, "--transly-translation-font-scale", Number.isFinite(scale) ? String(scale) : "1");
+    setOrRemoveStyleProperty(
+      element,
+      "--transly-translation-max-width",
+      state.settings.translationMaxWidth > 0 ? `${state.settings.translationMaxWidth}px` : ""
+    );
+    setOrRemoveStyleProperty(element, "--transly-translation-font-family", translationFontStack());
+  }
+
+  function clearCustomTranslationStyles(element) {
+    if (!element || !element.style) return;
+    [
+      "--transly-translation-color",
+      "--transly-translation-bg",
+      "--transly-translation-font-scale",
+      "--transly-translation-max-width",
+      "--transly-translation-font-family"
+    ].forEach((property) => element.style.removeProperty(property));
+  }
+
+  function setOrRemoveStyleProperty(element, property, value) {
+    if (value) element.style.setProperty(property, value);
+    else element.style.removeProperty(property);
+  }
+
+  function translationFontStack() {
+    const family = state.settings.translationFontFamily || "";
+    if (family === "serif") return 'Georgia, "Times New Roman", serif';
+    if (family === "sans") return 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    if (family === "mono") return 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+    if (family === "rounded") return 'ui-rounded, "SF Pro Rounded", "Nunito Sans", system-ui, sans-serif';
+    if (family === "system") return 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    return "";
   }
 
   function removeTranslationWrappers(element) {
@@ -1128,6 +1203,7 @@
       element.removeAttribute("data-transly-error");
       element.removeAttribute("data-transly-theme");
       element.removeAttribute("data-transly-same-language-background");
+      clearCustomTranslationStyles(element);
       element.classList.remove("transly-replaced", "transly-hoverable");
     });
     updatePanelState();
@@ -1187,6 +1263,24 @@
       '<i aria-hidden="true"></i>',
       "</label>",
       '<label class="transly-floating-settings-row">',
+      "<span>未触发时隐藏侧栏按钮</span>",
+      `<input name="translyFloatingHoverOnly" type="checkbox" ${state.settings.floatingBallHoverOnly ? "checked" : ""}>`,
+      '<i aria-hidden="true"></i>',
+      "</label>",
+      '<div class="transly-floating-controls">',
+      '<label><span>点击行为</span><select name="translyFloatingClickAction">',
+      floatingSelectOption("toggle", "翻译/显示原文", state.settings.floatingBallClickAction),
+      floatingSelectOption("translate", "仅翻译", state.settings.floatingBallClickAction),
+      floatingSelectOption("showOriginal", "仅显示原文", state.settings.floatingBallClickAction),
+      floatingSelectOption("sidepanel", "打开侧边栏", state.settings.floatingBallClickAction),
+      "</select></label>",
+      '<label><span>固定位置</span><select name="translyFloatingPosition">',
+      floatingSelectOption("right", "右侧", state.settings.floatingBallPosition),
+      floatingSelectOption("left", "左侧", state.settings.floatingBallPosition),
+      "</select></label>",
+      `<label><span>透明度</span><input name="translyFloatingOpacity" type="number" min="0" max="100" step="5" value="${state.settings.floatingBallOpacity}"></label>`,
+      "</div>",
+      '<label class="transly-floating-settings-row">',
       "<span>隐藏悬浮球</span>",
       '<input name="translyFloatingHidden" type="checkbox" checked>',
       '<i aria-hidden="true"></i>',
@@ -1240,14 +1334,29 @@
     ].join("");
   }
 
+  function floatingSelectOption(value, label, currentValue) {
+    return `<option value="${value}" ${value === currentValue ? "selected" : ""}>${label}</option>`;
+  }
+
   async function applyFloatingSettingsDialog() {
     const dialog = state.floatingSettingsDialog;
     if (!dialog) return;
     const compact = dialog.querySelector("input[name='translyFloatingCompact']").checked;
+    const hoverOnly = dialog.querySelector("input[name='translyFloatingHoverOnly']").checked;
+    const clickAction = dialog.querySelector("select[name='translyFloatingClickAction']").value;
+    const position = dialog.querySelector("select[name='translyFloatingPosition']").value;
+    const opacity = dialog.querySelector("input[name='translyFloatingOpacity']").value;
     const hidden = dialog.querySelector("input[name='translyFloatingHidden']").checked;
     const modeInput = dialog.querySelector("input[name='translyFloatingCloseMode']:checked");
     const mode = modeInput ? modeInput.value : "session";
-    let settings = core.normalizeSettings({ ...state.settings, floatingBallCompact: compact });
+    let settings = core.normalizeSettings({
+      ...state.settings,
+      floatingBallCompact: compact,
+      floatingBallHoverOnly: hoverOnly,
+      floatingBallClickAction: clickAction,
+      floatingBallPosition: position,
+      floatingBallOpacity: opacity
+    });
 
     if (!hidden) {
       await saveSettings(settings);

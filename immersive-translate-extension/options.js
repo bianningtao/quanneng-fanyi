@@ -19,6 +19,12 @@ const controls = {
   displayMode: document.querySelector("#displayMode"),
   translationTheme: document.querySelector("#translationTheme"),
   sameLanguageBackground: document.querySelector("#sameLanguageBackground"),
+  translationTextColor: document.querySelector("#translationTextColor"),
+  translationBackgroundColor: document.querySelector("#translationBackgroundColor"),
+  translationFontScale: document.querySelector("#translationFontScale"),
+  translationMaxWidth: document.querySelector("#translationMaxWidth"),
+  translationFontFamily: document.querySelector("#translationFontFamily"),
+  stylePresetGrid: document.querySelector("#stylePresetGrid"),
   alwaysTranslateDomains: document.querySelector("#alwaysTranslateDomains"),
   neverAutoTranslateDomains: document.querySelector("#neverAutoTranslateDomains"),
   neverTranslateLanguages: document.querySelector("#neverTranslateLanguages"),
@@ -68,6 +74,10 @@ const controls = {
   translationMaskEnabled: document.querySelector("#translationMaskEnabled"),
   floatingBallEnabled: document.querySelector("#floatingBallEnabled"),
   floatingBallCompact: document.querySelector("#floatingBallCompact"),
+  floatingBallHoverOnly: document.querySelector("#floatingBallHoverOnly"),
+  floatingBallClickAction: document.querySelector("#floatingBallClickAction"),
+  floatingBallPosition: document.querySelector("#floatingBallPosition"),
+  floatingBallOpacity: document.querySelector("#floatingBallOpacity"),
   floatingBallBlockedDomains: document.querySelector("#floatingBallBlockedDomains"),
   userRules: document.querySelector("#userRules"),
   settingsJson: document.querySelector("#settingsJson"),
@@ -161,6 +171,16 @@ function bindForm() {
     });
   }
 
+  if (controls.stylePresetGrid) {
+    controls.stylePresetGrid.addEventListener("click", (event) => {
+      const button = event.target && event.target.closest("[data-theme-choice]");
+      if (!button) return;
+      controls.translationTheme.value = button.getAttribute("data-theme-choice");
+      updatePreview();
+      persistFromForm();
+    });
+  }
+
   if (controls.engineList) {
     controls.engineList.addEventListener("click", (event) => {
       const button = event.target && event.target.closest("[data-engine-id]");
@@ -209,6 +229,7 @@ function isActionControl(name) {
     "saveStatus",
     "serviceStatus",
     "stylePreview",
+    "stylePresetGrid",
     "sectionTitle",
     "settingsJson"
   ].includes(name);
@@ -244,6 +265,11 @@ function applySettings(settings) {
   controls.displayMode.value = settings.displayMode;
   controls.translationTheme.value = settings.translationTheme;
   controls.sameLanguageBackground.value = settings.sameLanguageBackground;
+  controls.translationTextColor.value = settings.translationTextColor;
+  controls.translationBackgroundColor.value = settings.translationBackgroundColor;
+  controls.translationFontScale.value = settings.translationFontScale;
+  controls.translationMaxWidth.value = settings.translationMaxWidth || "";
+  controls.translationFontFamily.value = settings.translationFontFamily;
   controls.alwaysTranslateDomains.value = settings.alwaysTranslateDomains.join("\n");
   controls.neverAutoTranslateDomains.value = settings.neverAutoTranslateDomains.join("\n");
   controls.neverTranslateLanguages.value = settings.neverTranslateLanguages.join("\n");
@@ -268,8 +294,13 @@ function applySettings(settings) {
   controls.translationMaskEnabled.checked = settings.translationMaskEnabled;
   controls.floatingBallEnabled.checked = settings.floatingBallEnabled;
   controls.floatingBallCompact.checked = settings.floatingBallCompact;
+  controls.floatingBallHoverOnly.checked = settings.floatingBallHoverOnly;
+  controls.floatingBallClickAction.value = settings.floatingBallClickAction;
+  controls.floatingBallPosition.value = settings.floatingBallPosition;
+  controls.floatingBallOpacity.value = settings.floatingBallOpacity;
   controls.floatingBallBlockedDomains.value = settings.floatingBallBlockedDomains.join("\n");
   controls.userRules.value = JSON.stringify(settings.userRules || [], null, 2);
+  renderStylePresetGrid(settings);
   updatePreview();
   renderEngineList(settings);
   selectEngine(settings.provider);
@@ -323,6 +354,11 @@ function collectSettings() {
     displayMode: controls.displayMode.value,
     translationTheme: controls.translationTheme.value,
     sameLanguageBackground: controls.sameLanguageBackground.value,
+    translationTextColor: controls.translationTextColor.value,
+    translationBackgroundColor: controls.translationBackgroundColor.value,
+    translationFontScale: controls.translationFontScale.value,
+    translationMaxWidth: controls.translationMaxWidth.value,
+    translationFontFamily: controls.translationFontFamily.value,
     alwaysTranslateDomains: parseLines(controls.alwaysTranslateDomains.value),
     neverAutoTranslateDomains: parseLines(controls.neverAutoTranslateDomains.value),
     neverTranslateLanguages: parseLines(controls.neverTranslateLanguages.value),
@@ -348,6 +384,10 @@ function collectSettings() {
     translationMaskEnabled: controls.translationMaskEnabled.checked,
     floatingBallEnabled: controls.floatingBallEnabled.checked,
     floatingBallCompact: controls.floatingBallCompact.checked,
+    floatingBallHoverOnly: controls.floatingBallHoverOnly.checked,
+    floatingBallClickAction: controls.floatingBallClickAction.value,
+    floatingBallPosition: controls.floatingBallPosition.value,
+    floatingBallOpacity: controls.floatingBallOpacity.value,
     floatingBallBlockedDomains: parseLines(controls.floatingBallBlockedDomains.value),
     userRules: rules
   });
@@ -422,6 +462,19 @@ function renderGlossaryPresetGrid(settings) {
         </label>
       `;
     })
+    .join("");
+}
+
+function renderStylePresetGrid(settings) {
+  if (!controls.stylePresetGrid) return;
+  const activeTheme = settings.translationTheme || "muted";
+  controls.stylePresetGrid.innerHTML = core.getTranslationThemeOptions()
+    .map((option) => `
+      <button class="style-preset-card ${option.id === activeTheme ? "is-active" : ""}" type="button" data-theme-choice="${escapeHtml(option.id)}">
+        <span class="style-preset-sample" data-theme="${escapeHtml(option.id)}">长夜将至，我从今开始守望。</span>
+        <strong>${escapeHtml(option.label)}</strong>
+      </button>
+    `)
     .join("");
 }
 
@@ -781,6 +834,34 @@ function updatePreview() {
   if (!controls.stylePreview) return;
   controls.stylePreview.dataset.theme = controls.translationTheme.value;
   controls.stylePreview.dataset.sameLanguage = controls.sameLanguageBackground.value;
+  controls.stylePreview.style.setProperty("--preview-translation-color", controls.translationTextColor.value || "");
+  controls.stylePreview.style.setProperty("--preview-translation-bg", controls.translationBackgroundColor.value || "");
+  controls.stylePreview.style.setProperty(
+    "--preview-translation-scale",
+    String(Math.max(70, Math.min(160, Number(controls.translationFontScale.value || 100))) / 100)
+  );
+  controls.stylePreview.style.setProperty(
+    "--preview-translation-max-width",
+    controls.translationMaxWidth.value ? `${controls.translationMaxWidth.value}px` : "100%"
+  );
+  controls.stylePreview.style.setProperty(
+    "--preview-translation-font-family",
+    previewFontStack(controls.translationFontFamily.value)
+  );
+  if (controls.stylePresetGrid) {
+    controls.stylePresetGrid.querySelectorAll("[data-theme-choice]").forEach((button) => {
+      button.classList.toggle("is-active", button.getAttribute("data-theme-choice") === controls.translationTheme.value);
+    });
+  }
+}
+
+function previewFontStack(family) {
+  if (family === "serif") return 'Georgia, "Times New Roman", serif';
+  if (family === "sans") return 'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  if (family === "mono") return 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+  if (family === "rounded") return 'ui-rounded, "SF Pro Rounded", "Nunito Sans", system-ui, sans-serif';
+  if (family === "system") return 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  return "";
 }
 
 function updateServiceTiles(provider) {
