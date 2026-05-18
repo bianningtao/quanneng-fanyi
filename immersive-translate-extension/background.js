@@ -4,7 +4,9 @@ const core = self.TranslyCore;
 const SETTINGS_KEY = "translySettings";
 const SECRET_KEY = "translyCustomApiKey";
 const GLOSSARY_KEY = "translyCustomGlossaryTerms";
+const ENGINE_SECRET_KEY = "translyServiceEngineSecrets";
 const GOOGLE_TRANSLATE_ORIGIN = "https://translate.googleapis.com";
+const MICROSOFT_TRANSLATE_ORIGIN = "https://api-edge.cognitive.microsofttranslator.com";
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.get([SETTINGS_KEY], (stored) => {
@@ -205,7 +207,8 @@ async function translateMessage(message, sender) {
     }
     try {
       const payload = await translateWithProvider(provider, validation.text, validation.settings, url);
-      attempts.push({ provider, status: "success" });
+      const usedProvider = payload.provider || provider;
+      attempts.push({ provider: usedProvider, status: "success" });
       const failedAttempts = attempts.filter((attempt) => attempt.status === "failed");
       const translatedText = core.applyGlossaryToTranslation(
         payload.text,
@@ -216,7 +219,7 @@ async function translateMessage(message, sender) {
       return {
         ...payload,
         text: translatedText,
-        provider,
+        provider: usedProvider,
         providerOrder,
         attempts,
         warning: failedAttempts.length
@@ -237,20 +240,31 @@ async function translateMessage(message, sender) {
 }
 
 function sanitizeTranslationError(error, settings) {
-  return core.sanitizeErrorMessage(error.message || String(error), [settings && settings.customApiKey]);
+  const engineSecrets = settings && Array.isArray(settings.serviceEngines)
+    ? settings.serviceEngines.map((engine) => engine.apiKey)
+    : [];
+  return core.sanitizeErrorMessage(error.message || String(error), [
+    settings && settings.customApiKey,
+    ...engineSecrets
+  ]);
 }
 
 async function readSettingsForTranslation(incomingSettings) {
   const [syncStored, localStored] = await Promise.all([
     chrome.storage.sync.get([SETTINGS_KEY]),
-    chrome.storage.local.get([SECRET_KEY, GLOSSARY_KEY])
+    chrome.storage.local.get([SECRET_KEY, GLOSSARY_KEY, ENGINE_SECRET_KEY])
   ]);
   const incoming = { ...(incomingSettings || {}) };
   delete incoming.customApiKey;
+  const engineSource =
+    incoming.serviceEngines ||
+    (syncStored[SETTINGS_KEY] && syncStored[SETTINGS_KEY].serviceEngines) ||
+    [];
   return core.normalizeSettings({
     ...(syncStored[SETTINGS_KEY] || {}),
     ...incoming,
     customApiKey: localStored[SECRET_KEY] || "",
+    serviceEngines: mergeEngineSecrets(engineSource, localStored[ENGINE_SECRET_KEY] || {}),
     customGlossaryTerms:
       localStored[GLOSSARY_KEY] ||
       incoming.customGlossaryTerms ||
@@ -259,23 +273,43 @@ async function readSettingsForTranslation(incomingSettings) {
   });
 }
 
+function mergeEngineSecrets(serviceEngines, secrets) {
+  const secretMap = secrets && typeof secrets === "object" ? secrets : {};
+  return core.normalizeServiceEngines(serviceEngines || []).map((engine) => ({
+    ...engine,
+    apiKey: engine.apiKey || secretMap[engine.id] || ""
+  }));
+}
+
 function providerReadiness(provider, settings) {
-  if (provider === "custom" && !settings.customEndpoint) {
+  const engine = core.resolveServiceEngine(provider, settings);
+  if (!engine) {
+    return { ok: false, error: "翻译服务未配置" };
+  }
+  if ((engine.type === "openai-compatible" || engine.type === "custom-json") && !(engine.endpoint || settings.customEndpoint)) {
     return { ok: false, error: "自定义接口未配置" };
   }
-  if (provider === "demo" && settings.provider !== "demo" && !settings.fallbackToDemo) {
+  if (engine.type === "demo" && settings.provider !== engine.id && settings.provider !== "demo" && !settings.fallbackToDemo) {
     return { ok: false, error: "演示回退未开启" };
+  }
+  if (!engine.enabled && provider !== settings.provider && engine.type !== "demo") {
+    return { ok: false, error: "翻译服务已隐藏" };
   }
   return { ok: true };
 }
 
 async function translateWithProvider(provider, text, settings, url) {
-  if (provider === "google") return translateWithGoogle(text, settings);
-  if (provider === "custom") return translateWithCustomProvider(text, settings, url);
-  if (provider === "demo") {
+  const engine = core.resolveServiceEngine(provider, settings);
+  if (!engine) throw new Error(`翻译服务未配置：${provider}`);
+  if (engine.type === "google" || engine.provider === "google") return translateWithGoogle(text, settings, engine);
+  if (engine.type === "microsoft" || engine.provider === "microsoft") return translateWithMicrosoft(text, settings, engine);
+  if (engine.type === "openai-compatible" || engine.type === "custom-json" || engine.provider === "custom") {
+    return translateWithCustomProvider(text, settings, url, engine);
+  }
+  if (engine.type === "demo" || engine.provider === "demo") {
     return {
       text: core.buildDemoTranslation(text, settings.targetLanguage),
-      provider: "demo"
+      provider: engine.id
     };
   }
   throw new Error(`不支持的翻译服务：${provider}`);
@@ -301,20 +335,47 @@ async function translateWithGoogle(text, settings) {
   };
 }
 
-async function translateWithCustomProvider(text, settings, url) {
-  if (!settings.customEndpoint) {
+async function translateWithMicrosoft(text, settings, engine) {
+  const request = core.buildMicrosoftTranslateRequest(text, settings.targetLanguage, settings.sourceLanguage);
+  if (!request.url.startsWith(MICROSOFT_TRANSLATE_ORIGIN)) {
+    throw new Error("Unexpected Microsoft translate endpoint");
+  }
+
+  const response = await fetch(request.url, {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: request.body
+  });
+  if (!response.ok) {
+    throw new Error(`Microsoft translate failed: ${response.status}`);
+  }
+  const payload = await response.json();
+  return {
+    text: core.extractMicrosoftTranslateResponse(payload),
+    provider: engine.id || "microsoft"
+  };
+}
+
+async function translateWithCustomProvider(text, settings, url, engine) {
+  const endpoint = engine.endpoint || settings.customEndpoint;
+  if (!endpoint) {
     throw new Error("自定义接口地址为空");
   }
 
   const headers = { "Content-Type": "application/json" };
-  if (settings.customApiKey) {
-    headers.Authorization = `Bearer ${settings.customApiKey}`;
+  const apiKey = engine.apiKey || settings.customApiKey;
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  const response = await fetch(settings.customEndpoint, {
+  const response = await fetch(endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify(buildCustomProviderBody(text, settings, url))
+    body: JSON.stringify(buildCustomProviderBody(text, settings, url, engine))
   });
 
   if (!response.ok) {
@@ -324,30 +385,43 @@ async function translateWithCustomProvider(text, settings, url) {
   const payload = await response.json();
   return {
     text: core.extractProviderTranslation(payload),
-    provider: "custom"
+    provider: engine.id || "custom"
   };
 }
 
-function buildCustomProviderBody(text, settings, url) {
+function buildCustomProviderBody(text, settings, url, engine = {}) {
   const glossary = core.resolveGlossaryTerms(text, settings, url);
   const glossaryInstruction = core.buildGlossaryInstruction(text, settings, url);
-  if (isChatCompletionsEndpoint(settings.customEndpoint)) {
+  const endpoint = engine.endpoint || settings.customEndpoint;
+  const shouldUseChatBody =
+    isChatCompletionsEndpoint(endpoint) ||
+    (engine.type === "openai-compatible" && (engine.model || /\/v\d+\//i.test(endpoint)));
+  if (shouldUseChatBody) {
+    const label = core.languageLabel(settings.targetLanguage);
+    const templateVars = {
+      text,
+      to: label,
+      from: settings.sourceLanguage === "auto" ? "auto" : core.languageLabel(settings.sourceLanguage),
+      glossary: glossaryInstruction,
+      imt_style_guide: engine.richText
+        ? "Preserve inline links, code spans, list rhythm, and paragraph breaks when possible."
+        : ""
+    };
     return {
-      model: settings.customModel || "gpt-4o-mini",
-      temperature: 0.1,
+      model: engine.model || settings.customModel || "gpt-4o-mini",
+      temperature: Number.isFinite(Number(engine.temperature)) ? Number(engine.temperature) : 0.1,
       messages: [
         {
           role: "system",
-          content: [
-            "You are a translation engine.",
-            `Translate the user text into ${core.languageLabel(settings.targetLanguage)}.`,
-            glossaryInstruction,
-            "Return only the translated text without explanation."
-          ].filter(Boolean).join(" ")
+          content: renderPrompt(
+            engine.systemPrompt ||
+              "You are a translation engine. Translate the user text into {{to}}. {{glossary}} Return only the translated text without explanation.",
+            templateVars
+          )
         },
         {
           role: "user",
-          content: text
+          content: renderPrompt(selectUserPrompt(text, engine), templateVars)
         }
       ]
     };
@@ -358,6 +432,20 @@ function buildCustomProviderBody(text, settings, url) {
     targetLanguage: settings.targetLanguage,
     glossary
   };
+}
+
+function selectUserPrompt(text, engine) {
+  const hasParagraphs = /\n\s*\n/.test(String(text || ""));
+  if (hasParagraphs) {
+    return engine.multiParagraphPrompt || "Translate to {{to}}:\n\n{{text}}";
+  }
+  return engine.singleParagraphPrompt || "Translate to {{to}} (output translation only):\n\n{{text}}";
+}
+
+function renderPrompt(template, values) {
+  return String(template || "").replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => {
+    return Object.prototype.hasOwnProperty.call(values, key) ? String(values[key] || "") : "";
+  }).trim();
 }
 
 function isChatCompletionsEndpoint(endpoint) {

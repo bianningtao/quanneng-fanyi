@@ -70,6 +70,7 @@
   },
   "host_permissions": [
     "https://translate.googleapis.com/*",
+    "https://api-edge.cognitive.microsofttranslator.com/*",
     "https://*/*",
     "http://*/*"
   ],

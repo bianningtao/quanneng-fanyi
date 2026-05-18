@@ -60,13 +60,82 @@
     }
   };
 
-  const ACTIVE_PROVIDERS = new Set(["google", "custom", "demo"]);
-  const PROVIDERS = new Set(["google", "custom", "demo", "openai", "bing", "deepl"]);
+  const ACTIVE_PROVIDERS = new Set(["google", "microsoft", "custom", "demo"]);
+  const PROVIDERS = new Set(["google", "microsoft", "custom", "demo", "openai", "bing", "deepl"]);
   const DISPLAY_MODES = new Set(["dual", "translation", "original", "replace", "hover"]);
   const SUBTITLE_MODES = new Set(["dual", "translation"]);
-  const SUBTITLE_PROVIDERS = new Set(["default", "google", "custom", "demo"]);
+  const SUBTITLE_PROVIDERS = new Set(["default", "google", "microsoft", "custom", "demo"]);
   const TRANSLATION_THEMES = new Set(["muted", "marker", "underline", "none"]);
   const INTERFACE_LANGUAGES = new Set(["zh-CN", "en"]);
+  const SERVICE_ENGINE_TYPES = new Set(["google", "microsoft", "openai-compatible", "custom-json", "demo"]);
+  const SERVICE_ENGINE_GROUPS = new Set(["free", "custom"]);
+  const DEFAULT_ENGINE_PROMPTS = {
+    system:
+      "You are a professional {{to}} native translator. Translate faithfully, preserve meaning, keep names and code unchanged. {{glossary}}",
+    multi:
+      "Translate to {{to}}. Return only the translated text and keep paragraph separators:\n\n{{text}}",
+    single:
+      "Translate to {{to}} (output translation only):\n\n{{text}}"
+  };
+  const BUILT_IN_SERVICE_ENGINES = [
+    {
+      id: "google",
+      provider: "google",
+      type: "google",
+      group: "free",
+      name: "Google",
+      description: "Chrome 常用网页翻译接口，默认优先使用。",
+      enabled: true,
+      builtIn: true,
+      locked: true
+    },
+    {
+      id: "microsoft",
+      provider: "microsoft",
+      type: "microsoft",
+      group: "free",
+      name: "Microsoft",
+      description: "Microsoft Translator 网页端点，适合作为 Google 失败后的自动备用。",
+      enabled: true,
+      builtIn: true,
+      locked: true
+    },
+    {
+      id: "custom",
+      provider: "custom",
+      type: "openai-compatible",
+      group: "custom",
+      name: "自定义 API",
+      description: "兼容 OpenAI Chat Completions，也支持简单 POST JSON。",
+      enabled: true,
+      builtIn: true,
+      locked: false,
+      endpoint: "",
+      apiKey: "",
+      model: "",
+      strategy: "general",
+      aiContext: false,
+      richText: true,
+      systemPrompt: DEFAULT_ENGINE_PROMPTS.system,
+      multiParagraphPrompt: DEFAULT_ENGINE_PROMPTS.multi,
+      singleParagraphPrompt: DEFAULT_ENGINE_PROMPTS.single,
+      maxRequestsPerMinute: 5,
+      maxTextLength: 1200,
+      maxSegments: 4,
+      temperature: 0.1
+    },
+    {
+      id: "demo",
+      provider: "demo",
+      type: "demo",
+      group: "free",
+      name: "演示翻译",
+      description: "仅用于调试 UI 链路，不代表真实翻译质量。",
+      enabled: false,
+      builtIn: true,
+      locked: false
+    }
+  ];
   const SKIPPED_TAGS = new Set([
     "SCRIPT",
     "STYLE",
@@ -514,7 +583,8 @@
     return {
       enabled: true,
       provider: "google",
-      providerFallbackOrder: ["google", "custom"],
+      providerFallbackOrder: ["google", "microsoft", "custom"],
+      serviceEngines: getBuiltInServiceEngines(),
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
       interfaceLanguage: "zh-CN",
@@ -559,8 +629,10 @@
     const defaults = createDefaultSettings();
     const raw = input && typeof input === "object" ? input : {};
     const provider = normalizeProvider(raw.provider, defaults.provider);
+    const serviceEngines = normalizeServiceEngines(raw.serviceEngines || defaults.serviceEngines, raw);
     const providerFallbackOrder = normalizeProviderOrder(
-      raw.providerFallbackOrder || defaults.providerFallbackOrder
+      raw.providerFallbackOrder || defaults.providerFallbackOrder,
+      serviceEngines
     );
     const displayMode = DISPLAY_MODES.has(raw.displayMode) ? raw.displayMode : defaults.displayMode;
     const videoSubtitleMode = SUBTITLE_MODES.has(raw.videoSubtitleMode)
@@ -594,6 +666,7 @@
       enabled: typeof raw.enabled === "boolean" ? raw.enabled : defaults.enabled,
       provider,
       providerFallbackOrder,
+      serviceEngines,
       sourceLanguage,
       targetLanguage,
       interfaceLanguage,
@@ -677,20 +750,174 @@
     return normalized;
   }
 
-  function normalizeProviderOrder(value) {
+  function normalizeProviderOrder(value, serviceEngines) {
     const candidates = Array.isArray(value)
       ? value
       : String(value || "")
           .split(/[\n,]+/)
           .map((item) => item.trim());
     const order = [];
+    const allowed = new Set(ACTIVE_PROVIDERS);
+    normalizeServiceEngines(serviceEngines || []).forEach((engine) => {
+      allowed.add(engine.id);
+      allowed.add(engine.provider);
+    });
     candidates.forEach((item) => {
       const provider = normalizeProvider(item, "");
-      if (ACTIVE_PROVIDERS.has(provider) && !order.includes(provider)) {
+      if (allowed.has(provider) && !order.includes(provider)) {
         order.push(provider);
       }
     });
-    return order.length ? order : ["google", "custom"];
+    return order.length ? order : ["google", "microsoft", "custom"];
+  }
+
+  function getBuiltInServiceEngines() {
+    return BUILT_IN_SERVICE_ENGINES.map((engine) => normalizeServiceEngine(engine)).filter(Boolean);
+  }
+
+  function normalizeServiceEngines(value, compatibilitySettings) {
+    const rawEngines = Array.isArray(value) ? value : [];
+    const compatibility = compatibilitySettings && typeof compatibilitySettings === "object" ? compatibilitySettings : {};
+    const byId = new Map();
+
+    BUILT_IN_SERVICE_ENGINES.forEach((engine) => {
+      const matched = rawEngines.find((item) => normalizeEngineId(item && item.id) === engine.id);
+      const merged = normalizeServiceEngine({
+        ...engine,
+        ...(matched || {})
+      });
+      if (merged) byId.set(merged.id, merged);
+    });
+
+    rawEngines.forEach((item) => {
+      const engine = normalizeServiceEngine(item);
+      if (!engine || byId.has(engine.id)) return;
+      byId.set(engine.id, engine);
+    });
+
+    const custom = byId.get("custom");
+    if (custom) {
+      custom.endpoint = String(compatibility.customEndpoint || custom.endpoint || "").trim();
+      custom.apiKey = String(compatibility.customApiKey || custom.apiKey || "").trim();
+      custom.model = String(compatibility.customModel || custom.model || "").trim();
+    }
+
+    return Array.from(byId.values());
+  }
+
+  function normalizeServiceEngine(input) {
+    if (!input || typeof input !== "object") return null;
+    const base = findBuiltInEngine(input.id) || {};
+    const id = normalizeEngineId(input.id || base.id || input.provider || input.type);
+    if (!id) return null;
+    const provider = normalizeProvider(input.provider || base.provider || id, "custom");
+    const type = SERVICE_ENGINE_TYPES.has(input.type) ? input.type : base.type || providerToEngineType(provider);
+    const group = SERVICE_ENGINE_GROUPS.has(input.group) ? input.group : base.group || (type === "openai-compatible" ? "custom" : "free");
+    const name = normalizeDisplayName(input.name || base.name || id, id);
+    const systemPrompt = String(input.systemPrompt || base.systemPrompt || DEFAULT_ENGINE_PROMPTS.system);
+    const multiParagraphPrompt = String(input.multiParagraphPrompt || base.multiParagraphPrompt || DEFAULT_ENGINE_PROMPTS.multi);
+    const singleParagraphPrompt = String(input.singleParagraphPrompt || base.singleParagraphPrompt || DEFAULT_ENGINE_PROMPTS.single);
+    return {
+      id,
+      provider,
+      type,
+      group,
+      name,
+      description: String(input.description || base.description || ""),
+      enabled: typeof input.enabled === "boolean" ? input.enabled : base.enabled !== false,
+      builtIn: Boolean(base.builtIn || input.builtIn),
+      locked: Boolean(base.locked || input.locked),
+      endpoint: String(input.endpoint || base.endpoint || "").trim(),
+      apiKey: String(input.apiKey || base.apiKey || "").trim(),
+      model: String(input.model || base.model || "").trim(),
+      strategy: normalizeEngineStrategy(input.strategy || base.strategy || "general"),
+      aiContext: typeof input.aiContext === "boolean" ? input.aiContext : Boolean(base.aiContext),
+      richText: typeof input.richText === "boolean" ? input.richText : base.richText !== false,
+      systemPrompt,
+      multiParagraphPrompt,
+      singleParagraphPrompt,
+      maxRequestsPerMinute: clampNumber(input.maxRequestsPerMinute, base.maxRequestsPerMinute || 5, 0, 120),
+      maxTextLength: clampNumber(input.maxTextLength, base.maxTextLength || 1200, 200, 20000),
+      maxSegments: clampNumber(input.maxSegments, base.maxSegments || 4, 1, 250),
+      temperature: clampNumber(input.temperature, base.temperature || 0.1, 0, 2)
+    };
+  }
+
+  function normalizeEngineId(value) {
+    const id = String(value || "").trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9:_-]{1,63}$/.test(id)) return "";
+    return id;
+  }
+
+  function findBuiltInEngine(id) {
+    const normalizedId = normalizeEngineId(id);
+    return BUILT_IN_SERVICE_ENGINES.find((engine) => engine.id === normalizedId);
+  }
+
+  function providerToEngineType(provider) {
+    if (provider === "google") return "google";
+    if (provider === "microsoft") return "microsoft";
+    if (provider === "demo") return "demo";
+    return "openai-compatible";
+  }
+
+  function normalizeEngineStrategy(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return ["general", "technical", "social", "academic", "subtitle"].includes(normalized)
+      ? normalized
+      : "general";
+  }
+
+  function normalizeDisplayName(value, fallback) {
+    const text = String(value || "").trim().replace(/\s+/g, " ");
+    return text.slice(0, 48) || fallback || "自定义服务";
+  }
+
+  function clampNumber(value, fallback, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(max, Math.max(min, number));
+  }
+
+  function resolveServiceEngine(provider, settings) {
+    const normalizedSettings = settings && settings.serviceEngines
+      ? settings
+      : normalizeSettings(settings || createDefaultSettings());
+    const providerId = normalizeProvider(provider || normalizedSettings.provider, normalizedSettings.provider);
+    const engines = normalizeServiceEngines(normalizedSettings.serviceEngines || [], normalizedSettings);
+    return (
+      engines.find((engine) => engine.id === providerId) ||
+      engines.find((engine) => engine.provider === providerId) ||
+      null
+    );
+  }
+
+  function serviceEngineFingerprint(settings) {
+    const normalizedSettings = normalizeSettings(settings);
+    const payload = JSON.stringify(
+      normalizedSettings.serviceEngines.map((engine) => ({
+        id: engine.id,
+        provider: engine.provider,
+        type: engine.type,
+        endpoint: engine.endpoint,
+        model: engine.model,
+        enabled: engine.enabled,
+        strategy: engine.strategy,
+        richText: engine.richText,
+        aiContext: engine.aiContext,
+        maxTextLength: engine.maxTextLength,
+        maxSegments: engine.maxSegments,
+        temperature: engine.temperature,
+        systemPrompt: engine.systemPrompt,
+        multiParagraphPrompt: engine.multiParagraphPrompt,
+        singleParagraphPrompt: engine.singleParagraphPrompt
+      }))
+    );
+    let hash = 5381;
+    for (let index = 0; index < payload.length; index += 1) {
+      hash = ((hash << 5) + hash + payload.charCodeAt(index)) >>> 0;
+    }
+    return `engines-${hash.toString(36)}`;
   }
 
   function getBuiltInGlossaryBanks() {
@@ -894,15 +1121,8 @@
 
   function resolveProviderOrder(settings) {
     const normalizedSettings = normalizeSettings(settings);
-    const order = normalizeProviderOrder(normalizedSettings.providerFallbackOrder);
-    const defaultOrder = createDefaultSettings().providerFallbackOrder;
-    if (
-      normalizedSettings.provider === "demo" &&
-      order.length === defaultOrder.length &&
-      order.every((provider, index) => provider === defaultOrder[index])
-    ) {
-      return ["demo"];
-    }
+    const order = normalizeProviderOrder(normalizedSettings.providerFallbackOrder, normalizedSettings.serviceEngines);
+    if (normalizedSettings.provider === "demo") return ["demo"];
     if (normalizedSettings.fallbackToDemo && !order.includes("demo")) order.push("demo");
     if (!normalizedSettings.fallbackToDemo && normalizedSettings.provider !== "demo") {
       return order.filter((provider) => provider !== "demo");
@@ -1178,18 +1398,19 @@
     if (shouldSkipByLanguage(normalizedText, normalizedSettings.targetLanguage, normalizedSettings)) {
       throw new Error("文本与目标语言一致，无需翻译");
     }
-    assertProviderAvailable(normalizedSettings.provider);
+    assertProviderAvailable(normalizedSettings.provider, normalizedSettings);
     return {
       text: normalizedText,
       settings: normalizedSettings
     };
   }
 
-  function assertProviderAvailable(provider) {
+  function assertProviderAvailable(provider, settings) {
     const normalized = normalizeProvider(provider, "google");
     if (ACTIVE_PROVIDERS.has(normalized)) return true;
+    if (settings && resolveServiceEngine(normalized, settings)) return true;
     if (PROVIDERS.has(normalized)) {
-      throw new Error(`翻译服务 ${normalized} 暂不支持，请选择 Google、Custom 或 Demo`);
+      throw new Error(`翻译服务 ${normalized} 暂不支持，请选择 Google、Microsoft、Custom 或 Demo`);
     }
     throw new Error(`不支持的翻译服务：${normalized}`);
   }
@@ -1280,12 +1501,40 @@
     return url.toString();
   }
 
+  function buildMicrosoftTranslateRequest(text, targetLanguage, sourceLanguage = "auto") {
+    const url = new URL("https://api-edge.cognitive.microsofttranslator.com/translate");
+    url.searchParams.set("api-version", "3.0");
+    const source = normalizeSourceLanguage(sourceLanguage);
+    if (source !== "auto") url.searchParams.set("from", microsoftLanguageCode(source));
+    url.searchParams.set("to", microsoftLanguageCode(normalizeTargetLanguage(targetLanguage)));
+    return {
+      url: url.toString(),
+      body: JSON.stringify([{ Text: String(text || "") }])
+    };
+  }
+
+  function microsoftLanguageCode(language) {
+    if (language === "zh-CN") return "zh-Hans";
+    return normalizeLanguageCode(language) || "en";
+  }
+
   function extractGoogleTranslateResponse(payload) {
     if (!Array.isArray(payload) || !Array.isArray(payload[0])) {
       throw new Error("empty translation response");
     }
     const text = payload[0]
       .map((segment) => (Array.isArray(segment) ? segment[0] : ""))
+      .join("")
+      .trim();
+    if (!text) throw new Error("empty translation response");
+    return text;
+  }
+
+  function extractMicrosoftTranslateResponse(payload) {
+    if (!Array.isArray(payload)) throw new Error("empty translation response");
+    const text = payload
+      .map((item) => item && item.translations && item.translations[0] && item.translations[0].text)
+      .filter((item) => typeof item === "string" && item.trim())
       .join("")
       .trim();
     if (!text) throw new Error("empty translation response");
@@ -1340,6 +1589,10 @@
     normalizeDomainList,
     normalizeProviderOrder,
     resolveProviderOrder,
+    getBuiltInServiceEngines,
+    normalizeServiceEngines,
+    resolveServiceEngine,
+    serviceEngineFingerprint,
     getBuiltInGlossaryBanks,
     normalizeGlossaryTerms,
     resolveGlossaryTerms,
@@ -1368,7 +1621,9 @@
     getSiteRule,
     matchesSiteRule,
     buildGoogleTranslateUrl,
+    buildMicrosoftTranslateRequest,
     extractGoogleTranslateResponse,
+    extractMicrosoftTranslateResponse,
     extractProviderTranslation,
     buildDemoTranslation
   };

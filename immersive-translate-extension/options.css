@@ -569,6 +569,148 @@ input[type="checkbox"]:checked::before {
   color: #8fb3c8;
 }
 
+.engine-workbench {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.engine-list-pane,
+.engine-detail {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(17, 23, 34, 0.74);
+  box-shadow: var(--shadow);
+}
+
+.engine-list-pane {
+  align-self: start;
+  overflow: hidden;
+}
+
+.engine-toolbar {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 12px;
+}
+
+.engine-list {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.engine-group-title {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.engine-row {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  padding: 10px;
+  text-align: left;
+}
+
+.engine-row:hover,
+.engine-row.is-active {
+  border-color: rgba(255, 79, 154, 0.42);
+  background: rgba(255, 79, 154, 0.1);
+}
+
+.engine-row strong,
+.engine-row small {
+  display: block;
+}
+
+.engine-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.engine-row i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--good);
+}
+
+.engine-row.is-disabled i {
+  background: #64748b;
+}
+
+.engine-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #0c111a;
+  color: #ffd2e5;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.engine-detail {
+  overflow: hidden;
+}
+
+.engine-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 16px;
+}
+
+.engine-detail-header h3 {
+  margin-bottom: 6px;
+  font-size: 20px;
+}
+
+.engine-detail-header span {
+  color: var(--muted);
+}
+
+.engine-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.engine-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.engine-edit-grid {
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.engine-custom-fields {
+  margin: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .info-card {
   display: grid;
   gap: 6px;

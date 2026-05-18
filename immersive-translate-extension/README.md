@@ -25,9 +25,9 @@ Standalone Chrome Manifest V3 extension.
 - Selected text translation popover.
 - Triple-space input translation for text fields.
 - Video subtitle translation for visible YouTube captions and common HTML5 player caption layers, with bilingual or translation-only subtitle display.
-- Built-in and custom terminology glossaries. Simple custom APIs receive matched glossary entries; `/chat/completions` APIs receive the matched terms in the system message. Google/demo can only do light local correction when the translated result still contains the source term.
-- Providers: Google web translate, custom JSON API, and demo mode.
-- Custom API keys and custom glossary terms are stored in `chrome.storage.local`; synced settings do not contain those local-only values.
+- Built-in and custom terminology glossaries. Simple custom APIs receive matched glossary entries; `/chat/completions` APIs receive the matched terms in the system message. Google/Microsoft/demo can only do light local correction when the translated result still contains the source term.
+- Translation engines: Google web translate, Microsoft Translator web endpoint, custom JSON/OpenAI-compatible engines, and demo mode. The default fallback order is Google -> Microsoft -> custom API, and users can reorder or add custom engines in the settings page.
+- Custom API keys, custom engine secrets, and custom glossary terms are stored in `chrome.storage.local`; synced settings do not contain those local-only values.
 
 ## Deferred feature modules
 
@@ -65,3 +65,5 @@ Accepted response fields:
 ```
 
 `translatedText`, `translation`, `result`, `data.text`, `data.translatedText`, and `data.translation` are also accepted.
+
+OpenAI-compatible engines can point to `/chat/completions`; Transly sends `model`, `temperature`, `messages`, glossary constraints, and the configured single/multi-paragraph prompts.

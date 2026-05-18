@@ -2,7 +2,8 @@ const core = window.TranslyCore;
 const SETTINGS_KEY = "translySettings";
 const SECRET_KEY = "translyCustomApiKey";
 const GLOSSARY_KEY = "translyCustomGlossaryTerms";
-const READY_PROVIDERS = new Set(["google", "custom", "demo"]);
+const ENGINE_SECRET_KEY = "translyServiceEngineSecrets";
+const READY_PROVIDERS = new Set(["google", "microsoft", "custom", "demo"]);
 
 const controls = {
   enabled: document.querySelector("#enabled"),
@@ -24,6 +25,30 @@ const controls = {
   alwaysTranslateLanguages: document.querySelector("#alwaysTranslateLanguages"),
   blockedDomains: document.querySelector("#blockedDomains"),
   providerFallbackOrder: document.querySelector("#providerFallbackOrder"),
+  engineList: document.querySelector("#engineList"),
+  engineDetail: document.querySelector("#engineDetail"),
+  compareEngines: document.querySelector("#compareEngines"),
+  addCustomEngine: document.querySelector("#addCustomEngine"),
+  setDefaultEngine: document.querySelector("#setDefaultEngine"),
+  engineEnabled: document.querySelector("#engineEnabled"),
+  engineName: document.querySelector("#engineName"),
+  engineType: document.querySelector("#engineType"),
+  engineStrategy: document.querySelector("#engineStrategy"),
+  engineEndpoint: document.querySelector("#engineEndpoint"),
+  engineApiKey: document.querySelector("#engineApiKey"),
+  engineModel: document.querySelector("#engineModel"),
+  engineAiContext: document.querySelector("#engineAiContext"),
+  engineRichText: document.querySelector("#engineRichText"),
+  engineSystemPrompt: document.querySelector("#engineSystemPrompt"),
+  engineMultiPrompt: document.querySelector("#engineMultiPrompt"),
+  engineSinglePrompt: document.querySelector("#engineSinglePrompt"),
+  engineMaxRequestsPerMinute: document.querySelector("#engineMaxRequestsPerMinute"),
+  engineMaxTextLength: document.querySelector("#engineMaxTextLength"),
+  engineMaxSegments: document.querySelector("#engineMaxSegments"),
+  engineTemperature: document.querySelector("#engineTemperature"),
+  engineTitle: document.querySelector("#engineTitle"),
+  engineMeta: document.querySelector("#engineMeta"),
+  engineDescription: document.querySelector("#engineDescription"),
   customEndpoint: document.querySelector("#customEndpoint"),
   customApiKey: document.querySelector("#customApiKey"),
   customModel: document.querySelector("#customModel"),
@@ -74,6 +99,7 @@ const sectionTitles = {
 };
 
 let currentSettings = createDefaultOptionSettings();
+let activeEngineId = "google";
 let saveTimer = null;
 
 initOptions();
@@ -135,8 +161,28 @@ function bindForm() {
     });
   }
 
+  if (controls.engineList) {
+    controls.engineList.addEventListener("click", (event) => {
+      const button = event.target && event.target.closest("[data-engine-id]");
+      if (!button) return;
+      commitActiveEngineForm();
+      selectEngine(button.getAttribute("data-engine-id"));
+      persistFromForm();
+    });
+  }
+
   controls.saveSettings.addEventListener("click", () => persistFromForm(true));
-  controls.provider.addEventListener("change", () => updateProviderFields(controls.provider.value));
+  controls.provider.addEventListener("change", () => {
+    selectEngine(controls.provider.value);
+    updateProviderFields(controls.provider.value);
+  });
+  controls.addCustomEngine.addEventListener("click", addCustomEngine);
+  controls.compareEngines.addEventListener("click", compareEngines);
+  controls.setDefaultEngine.addEventListener("click", () => {
+    controls.provider.value = activeEngineId;
+    promoteEngineInOrder(activeEngineId);
+    persistFromForm(true);
+  });
   controls.clearCache.addEventListener("click", clearCache);
   controls.resetSettings.addEventListener("click", resetSettings);
   controls.testService.addEventListener("click", testService);
@@ -150,6 +196,14 @@ function isActionControl(name) {
     "clearCache",
     "resetSettings",
     "testService",
+    "compareEngines",
+    "addCustomEngine",
+    "setDefaultEngine",
+    "engineList",
+    "engineDetail",
+    "engineTitle",
+    "engineMeta",
+    "engineDescription",
     "exportSettings",
     "importSettings",
     "saveStatus",
@@ -161,14 +215,17 @@ function isActionControl(name) {
 }
 
 async function loadSettings() {
-  const [stored, secret, customGlossaryTerms] = await Promise.all([
+  const [stored, secret, customGlossaryTerms, engineSecrets] = await Promise.all([
     storageGet("sync", SETTINGS_KEY),
     storageGet("local", SECRET_KEY),
-    storageGet("local", GLOSSARY_KEY)
+    storageGet("local", GLOSSARY_KEY),
+    storageGet("local", ENGINE_SECRET_KEY)
   ]);
+  const engineSource = (stored && stored.serviceEngines) || [];
   return normalizeOptionSettings({
     ...(stored || {}),
     customApiKey: secret || "",
+    serviceEngines: mergeEngineSecrets(engineSource, engineSecrets || {}),
     customGlossaryTerms: customGlossaryTerms || (stored && stored.customGlossaryTerms) || []
   });
 }
@@ -214,6 +271,8 @@ function applySettings(settings) {
   controls.floatingBallBlockedDomains.value = settings.floatingBallBlockedDomains.join("\n");
   controls.userRules.value = JSON.stringify(settings.userRules || [], null, 2);
   updatePreview();
+  renderEngineList(settings);
+  selectEngine(settings.provider);
   updateServiceTiles(settings.provider);
   updateProviderFields(settings.provider);
 }
@@ -226,9 +285,11 @@ async function persistFromForm(forceStatus) {
     await Promise.all([
       storageSet("sync", SETTINGS_KEY, publicSettings(settings)),
       storageSet("local", SECRET_KEY, settings.customApiKey),
-      storageSet("local", GLOSSARY_KEY, settings.customGlossaryTerms)
+      storageSet("local", GLOSSARY_KEY, settings.customGlossaryTerms),
+      storageSet("local", ENGINE_SECRET_KEY, collectEngineSecrets(settings))
     ]);
     updateServiceTiles(settings.provider);
+    renderEngineList(settings);
     notifySettingsChanged(runtimeSettings(settings));
     if (forceStatus) setStatus("已保存");
     else setStatus("已自动保存");
@@ -245,6 +306,7 @@ function scheduleSave() {
 }
 
 function collectSettings() {
+  commitActiveEngineForm();
   const rules = parseUserRules();
   return normalizeOptionSettings({
     ...currentSettings,
@@ -267,6 +329,7 @@ function collectSettings() {
     alwaysTranslateLanguages: parseLines(controls.alwaysTranslateLanguages.value),
     blockedDomains: parseLines(controls.blockedDomains.value),
     providerFallbackOrder: parseLines(controls.providerFallbackOrder.value),
+    serviceEngines: currentSettings.serviceEngines,
     customEndpoint: controls.customEndpoint.value,
     customApiKey: controls.customApiKey.value,
     customModel: controls.customModel.value,
@@ -301,7 +364,8 @@ function normalizeOptionSettings(input) {
     neverAutoTranslateDomains: core.normalizeDomainList(input.neverAutoTranslateDomains || []),
     neverTranslateLanguages: parseLanguageLines(input.neverTranslateLanguages || []),
     alwaysTranslateLanguages: parseLanguageLines(input.alwaysTranslateLanguages || []),
-    providerFallbackOrder: core.normalizeProviderOrder(input.providerFallbackOrder || [])
+    serviceEngines: core.normalizeServiceEngines(input.serviceEngines || normalized.serviceEngines || [], normalized),
+    providerFallbackOrder: core.normalizeProviderOrder(input.providerFallbackOrder || [], normalized.serviceEngines)
   };
 }
 
@@ -361,6 +425,238 @@ function renderGlossaryPresetGrid(settings) {
     .join("");
 }
 
+function renderEngineList(settings = currentSettings) {
+  if (!controls.engineList) return;
+  syncProviderOptions(settings);
+  const activeId = activeEngineId || settings.provider || "google";
+  const groups = [
+    { id: "free", title: "通用可用服务" },
+    { id: "custom", title: "自定义服务" }
+  ];
+  controls.engineList.innerHTML = groups
+    .map((group) => {
+      const engines = (settings.serviceEngines || []).filter((engine) => engine.group === group.id);
+      if (!engines.length) return "";
+      return `
+        <div class="engine-group">
+          <div class="engine-group-title">${escapeHtml(group.title)}</div>
+          ${engines.map((engine) => renderEngineButton(engine, activeId, settings)).join("")}
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function renderEngineButton(engine, activeId, settings) {
+  const isDefault = settings.provider === engine.id || (settings.provider === engine.provider && engine.id === engine.provider);
+  const state = engine.enabled ? "可用" : "已隐藏";
+  return `
+    <button class="engine-row ${engine.id === activeId ? "is-active" : ""} ${engine.enabled ? "" : "is-disabled"}" type="button" data-engine-id="${escapeHtml(engine.id)}">
+      <span class="engine-icon">${escapeHtml(engineIcon(engine))}</span>
+      <span>
+        <strong>${escapeHtml(engine.name)}</strong>
+        <small>${escapeHtml(engine.id)} · ${escapeHtml(state)}${isDefault ? " · 当前默认" : ""}</small>
+      </span>
+      <i aria-hidden="true"></i>
+    </button>
+  `;
+}
+
+function engineIcon(engine) {
+  if (engine.provider === "google") return "G";
+  if (engine.provider === "microsoft") return "M";
+  if (engine.provider === "demo") return "D";
+  return "AI";
+}
+
+function syncProviderOptions(settings) {
+  if (!controls.provider) return;
+  const existing = new Set(Array.from(controls.provider.options).map((option) => option.value));
+  (settings.serviceEngines || []).forEach((engine) => {
+    if (existing.has(engine.id)) return;
+    const option = document.createElement("option");
+    option.value = engine.id;
+    option.textContent = engine.name;
+    controls.provider.appendChild(option);
+    existing.add(engine.id);
+  });
+}
+
+function selectEngine(engineId) {
+  const engine = core.resolveServiceEngine(engineId, currentSettings) || core.resolveServiceEngine("google", currentSettings);
+  if (!engine) return;
+  activeEngineId = engine.id;
+  controls.engineTitle.textContent = engine.name;
+  controls.engineMeta.textContent = currentSettings.provider === engine.id ? "当前默认" : engine.group === "custom" ? "自定义服务" : "通用服务";
+  controls.engineDescription.textContent = engine.description || "可在翻译备份流程中使用。";
+  controls.engineEnabled.checked = engine.enabled;
+  controls.engineName.value = engine.name;
+  controls.engineType.value = engine.type;
+  controls.engineStrategy.value = engine.strategy || "general";
+  controls.engineEndpoint.value = engine.endpoint || "";
+  controls.engineApiKey.value = engine.apiKey || "";
+  controls.engineModel.value = engine.model || "";
+  controls.engineAiContext.checked = Boolean(engine.aiContext);
+  controls.engineRichText.checked = engine.richText !== false;
+  controls.engineSystemPrompt.value = engine.systemPrompt || "";
+  controls.engineMultiPrompt.value = engine.multiParagraphPrompt || "";
+  controls.engineSinglePrompt.value = engine.singleParagraphPrompt || "";
+  controls.engineMaxRequestsPerMinute.value = engine.maxRequestsPerMinute;
+  controls.engineMaxTextLength.value = engine.maxTextLength;
+  controls.engineMaxSegments.value = engine.maxSegments;
+  controls.engineTemperature.value = engine.temperature;
+  if (engine.id === "custom") {
+    controls.customEndpoint.value = engine.endpoint || "";
+    controls.customApiKey.value = engine.apiKey || "";
+    controls.customModel.value = engine.model || "";
+  }
+  updateProviderFields(engine.id);
+  renderEngineList(currentSettings);
+}
+
+function commitActiveEngineForm() {
+  if (!controls.engineName || !currentSettings.serviceEngines) return;
+  const index = currentSettings.serviceEngines.findIndex((engine) => engine.id === activeEngineId);
+  if (index < 0) return;
+  const previous = currentSettings.serviceEngines[index];
+  const next = {
+    ...previous,
+    enabled: controls.engineEnabled.checked,
+    name: controls.engineName.value,
+    type: controls.engineType.value,
+    provider: providerForEngineType(controls.engineType.value, previous.provider),
+    group: controls.engineType.value === "google" || controls.engineType.value === "microsoft" || controls.engineType.value === "demo" ? "free" : "custom",
+    strategy: controls.engineStrategy.value,
+    endpoint: controls.engineEndpoint.value,
+    apiKey: controls.engineApiKey.value,
+    model: controls.engineModel.value,
+    aiContext: controls.engineAiContext.checked,
+    richText: controls.engineRichText.checked,
+    systemPrompt: controls.engineSystemPrompt.value,
+    multiParagraphPrompt: controls.engineMultiPrompt.value,
+    singleParagraphPrompt: controls.engineSinglePrompt.value,
+    maxRequestsPerMinute: controls.engineMaxRequestsPerMinute.value,
+    maxTextLength: controls.engineMaxTextLength.value,
+    maxSegments: controls.engineMaxSegments.value,
+    temperature: controls.engineTemperature.value
+  };
+  const engines = currentSettings.serviceEngines.slice();
+  engines[index] = next;
+  if (next.id === "custom") {
+    currentSettings.customEndpoint = next.endpoint;
+    currentSettings.customApiKey = next.apiKey;
+    currentSettings.customModel = next.model;
+  }
+  currentSettings.serviceEngines = core.normalizeServiceEngines(engines, currentSettings);
+}
+
+function providerForEngineType(type, fallback) {
+  if (type === "google") return "google";
+  if (type === "microsoft") return "microsoft";
+  if (type === "demo") return "demo";
+  return fallback === "custom" ? "custom" : "custom";
+}
+
+function addCustomEngine() {
+  commitActiveEngineForm();
+  const usedIds = new Set((currentSettings.serviceEngines || []).map((engine) => engine.id));
+  let index = 1;
+  let id = "custom-1";
+  while (usedIds.has(id)) {
+    index += 1;
+    id = `custom-${index}`;
+  }
+  const engine = {
+    id,
+    provider: "custom",
+    type: "openai-compatible",
+    group: "custom",
+    name: `自定义服务 ${index}`,
+    description: "兼容 OpenAI Chat Completions 的自定义翻译服务。",
+    enabled: true,
+    endpoint: "",
+    apiKey: "",
+    model: "gpt-4o-mini",
+    strategy: "general",
+    aiContext: false,
+    richText: true,
+    systemPrompt: "You are a professional {{to}} native translator. {{glossary}}",
+    multiParagraphPrompt: "Translate to {{to}}:\n\n{{text}}",
+    singleParagraphPrompt: "Translate to {{to}} (output translation only):\n\n{{text}}",
+    maxRequestsPerMinute: 5,
+    maxTextLength: 1200,
+    maxSegments: 4,
+    temperature: 0.1
+  };
+  currentSettings.serviceEngines = core.normalizeServiceEngines([
+    ...(currentSettings.serviceEngines || []),
+    engine
+  ], currentSettings);
+  const order = parseLines(controls.providerFallbackOrder.value);
+  if (!order.includes(id)) controls.providerFallbackOrder.value = [...order, id].join("\n");
+  selectEngine(id);
+  persistFromForm(true);
+}
+
+function promoteEngineInOrder(engineId) {
+  const order = parseLines(controls.providerFallbackOrder.value).filter((item) => item !== engineId);
+  controls.providerFallbackOrder.value = [engineId, ...order].join("\n");
+}
+
+async function compareEngines() {
+  const settings = await persistFromForm();
+  if (!settings || !hasRuntimeMessaging()) {
+    controls.serviceStatus.textContent = "当前环境无法调用扩展后台对比服务";
+    return;
+  }
+  const engines = settings.serviceEngines.filter((engine) => engine.enabled).slice(0, 5);
+  controls.serviceStatus.textContent = "对比中...";
+  const lines = [];
+  for (const engine of engines) {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "TRANSLY_TRANSLATE",
+        text: "Hello, this is a Transly engine comparison.",
+        url: "https://example.com/transly-compare",
+        settings: runtimeSettings({
+          ...settings,
+          provider: engine.id,
+          providerFallbackOrder: [engine.id],
+          fallbackToDemo: engine.provider === "demo"
+        })
+      });
+      if (!response || response.ok === false) throw new Error((response && response.error) || "失败");
+      lines.push(`${engine.name}: ${core.normalizeText(response.text).slice(0, 48)}`);
+    } catch (error) {
+      lines.push(`${engine.name}: ${core.sanitizeErrorMessage(error.message || String(error), [engine.apiKey])}`);
+    }
+  }
+  controls.serviceStatus.textContent = lines.join("\n");
+}
+
+function collectEngineSecrets(settings) {
+  const output = {};
+  (settings.serviceEngines || []).forEach((engine) => {
+    if (engine.apiKey) output[engine.id] = engine.apiKey;
+  });
+  return output;
+}
+
+function mergeEngineSecrets(serviceEngines, secrets) {
+  const secretMap = secrets && typeof secrets === "object" ? secrets : {};
+  return core.normalizeServiceEngines(serviceEngines || []).map((engine) => ({
+    ...engine,
+    apiKey: engine.apiKey || secretMap[engine.id] || ""
+  }));
+}
+
+function stripEngineSecrets(settings) {
+  return {
+    ...settings,
+    serviceEngines: (settings.serviceEngines || []).map((engine) => ({ ...engine, apiKey: "" }))
+  };
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -382,11 +678,11 @@ function parseUserRules() {
 }
 
 function publicSettings(settings) {
-  return { ...settings, customApiKey: "", customGlossaryTerms: [] };
+  return { ...stripEngineSecrets(settings), customApiKey: "", customGlossaryTerms: [] };
 }
 
 function runtimeSettings(settings) {
-  return { ...publicSettings(settings), customGlossaryTerms: settings.customGlossaryTerms };
+  return { ...settings, customGlossaryTerms: settings.customGlossaryTerms };
 }
 
 async function clearCache() {
@@ -400,7 +696,8 @@ async function resetSettings() {
   await Promise.all([
     storageSet("sync", SETTINGS_KEY, publicSettings(currentSettings)),
     storageRemove("local", SECRET_KEY),
-    storageRemove("local", GLOSSARY_KEY)
+    storageRemove("local", GLOSSARY_KEY),
+    storageRemove("local", ENGINE_SECRET_KEY)
   ]);
   applySettings(currentSettings);
   setStatus("已重置为默认设置");
@@ -409,7 +706,8 @@ async function resetSettings() {
 async function testService() {
   const settings = await persistFromForm();
   if (!settings) return;
-  if (!READY_PROVIDERS.has(settings.provider)) {
+  const engine = core.resolveServiceEngine(activeEngineId || settings.provider, settings);
+  if (!engine) {
     controls.serviceStatus.textContent = "该服务当前不可用，当前版本尚不能测试";
     return;
   }
@@ -424,7 +722,12 @@ async function testService() {
       type: "TRANSLY_TRANSLATE",
       text: "Hello, this is a Transly service test.",
       url: "https://example.com/transly-service-test",
-      settings: runtimeSettings(settings)
+      settings: runtimeSettings({
+        ...settings,
+        provider: engine.id,
+        providerFallbackOrder: [engine.id],
+        fallbackToDemo: engine.provider === "demo" || settings.fallbackToDemo
+      })
     });
     if (!response || response.ok === false) {
       throw new Error((response && response.error) || "服务测试失败");
@@ -484,15 +787,34 @@ function updateServiceTiles(provider) {
   document.querySelectorAll("[data-provider-choice]").forEach((button) => {
     button.classList.toggle("is-selected", button.getAttribute("data-provider-choice") === provider);
   });
+  renderEngineList(currentSettings);
 }
 
 function updateProviderFields(provider) {
-  const isCustom = provider === "custom";
+  const engine = core.resolveServiceEngine(provider, currentSettings);
+  const isCustom = Boolean(engine && (engine.type === "openai-compatible" || engine.type === "custom-json" || engine.provider === "custom"));
   const customPanel = document.querySelector("#customProviderSettings");
   if (customPanel) customPanel.hidden = !isCustom;
-  [controls.customEndpoint, controls.customApiKey, controls.customModel].forEach((control) => {
+  [
+    controls.customEndpoint,
+    controls.customApiKey,
+    controls.customModel,
+    controls.engineEndpoint,
+    controls.engineApiKey,
+    controls.engineModel,
+    controls.engineAiContext,
+    controls.engineRichText,
+    controls.engineSystemPrompt,
+    controls.engineMultiPrompt,
+    controls.engineSinglePrompt,
+    controls.engineMaxRequestsPerMinute,
+    controls.engineMaxTextLength,
+    controls.engineMaxSegments,
+    controls.engineTemperature
+  ].forEach((control) => {
     if (control) control.disabled = !isCustom;
   });
+  if (controls.engineType) controls.engineType.disabled = Boolean(engine && engine.locked);
 }
 
 async function notifySettingsChanged(settings) {

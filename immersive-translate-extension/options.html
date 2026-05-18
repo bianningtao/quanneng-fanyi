@@ -88,6 +88,7 @@
               </span>
               <select id="provider">
                 <option value="google">Google 免费接口</option>
+                <option value="microsoft">Microsoft 翻译</option>
                 <option value="custom">自定义 API</option>
                 <option value="demo">演示翻译</option>
               </select>
@@ -233,75 +234,177 @@
         <section class="settings-section" data-section="service" aria-labelledby="serviceTitle">
           <div class="section-heading">
             <h2 id="serviceTitle">翻译服务</h2>
-            <p>当前只保留通用可用服务：Google 网页翻译、自定义 API、演示模式。</p>
+            <p>按真实可用程度维护服务列表，翻译时会按顺序自动切换下一个可用引擎。</p>
           </div>
 
-          <div class="service-grid" aria-label="翻译服务列表">
-            <button class="service-tile" type="button" data-provider-choice="google">
-              <strong>Google</strong>
-              <span>免费接口 · 当前可用</span>
-            </button>
-            <button class="service-tile" type="button" data-provider-choice="custom">
-              <strong>自定义 API</strong>
-              <span>POST JSON · 当前可用</span>
-            </button>
-            <button class="service-tile" type="button" data-provider-choice="demo">
-              <strong>演示翻译</strong>
-              <span>本地演示 · 当前可用</span>
-            </button>
-          </div>
+          <div class="engine-workbench">
+            <aside class="engine-list-pane" aria-label="翻译服务列表">
+              <div class="engine-toolbar">
+                <button id="compareEngines" class="secondary-button" type="button">在线对比翻译服务</button>
+                <button id="addCustomEngine" class="secondary-button" type="button">添加自定义翻译服务</button>
+              </div>
+              <div id="engineList" class="engine-list"></div>
+            </aside>
 
-          <div id="customProviderSettings" class="setting-group" hidden>
-            <div class="group-title">
-              <h3>自定义接口</h3>
-              <span>密钥保存在 chrome.storage.local，不进入同步设置</span>
-            </div>
-            <label class="setting-row field-row">
-              <span>
-                <strong>Endpoint</strong>
-                <small>需要接受 POST JSON：text、targetLanguage。</small>
-              </span>
-              <input id="customEndpoint" type="url" placeholder="https://api.example.com/translate">
-            </label>
-            <label class="setting-row field-row">
-              <span>
-                <strong>API Key</strong>
-                <small>发送时作为 Bearer token，错误提示会做脱敏。</small>
-              </span>
-              <input id="customApiKey" type="password" autocomplete="off" placeholder="sk-...">
-            </label>
-            <label class="setting-row field-row">
-              <span>
-                <strong>Model</strong>
-                <small>可选；`/chat/completions` 接口会使用该模型名。</small>
-              </span>
-              <input id="customModel" type="text" autocomplete="off" placeholder="gpt-4o-mini">
-            </label>
-          </div>
+            <section id="engineDetail" class="engine-detail" aria-label="翻译服务详情">
+              <div class="engine-detail-header">
+                <div>
+                  <p id="engineMeta" class="eyebrow">当前默认</p>
+                  <h3 id="engineTitle">Google</h3>
+                  <span id="engineDescription">正在读取服务配置</span>
+                </div>
+                <div class="engine-header-actions">
+                  <button id="setDefaultEngine" class="secondary-button" type="button">设为默认</button>
+                  <label class="engine-switch">
+                    <span>启用</span>
+                    <input id="engineEnabled" type="checkbox">
+                  </label>
+                </div>
+              </div>
 
-          <div class="setting-group">
-            <div class="group-title">
-              <h3>翻译备份流程</h3>
-              <span>按顺序尝试，前一个失败后自动切换下一个服务</span>
-            </div>
-            <label class="setting-row field-row">
-              <span>
-                <strong>服务顺序</strong>
-                <small>每行一个：google、custom、demo。默认优先 Google，再使用自定义 API。</small>
-              </span>
-              <textarea id="providerFallbackOrder" spellcheck="false" rows="3" placeholder="google&#10;custom"></textarea>
-            </label>
-            <label class="setting-row">
-              <span>
-                <strong>允许演示翻译兜底</strong>
-                <small>仅用于确认 UI 链路，真实翻译应优先使用 Google 或自定义 API。</small>
-              </span>
-              <input id="fallbackToDemo" type="checkbox">
-            </label>
-            <div class="button-row">
-              <button id="testService" class="primary-button" type="button">测试服务</button>
-              <span id="serviceStatus" class="inline-status">尚未测试</span>
-            </div>
+              <div class="compact-grid engine-edit-grid">
+                <label>
+                  <span>服务名称</span>
+                  <input id="engineName" type="text" autocomplete="off" placeholder="Google">
+                </label>
+                <label>
+                  <span>请求类型</span>
+                  <select id="engineType">
+                    <option value="google">Google</option>
+                    <option value="microsoft">Microsoft</option>
+                    <option value="openai-compatible">OpenAI-compatible</option>
+                    <option value="custom-json">POST JSON</option>
+                    <option value="demo">演示翻译</option>
+                  </select>
+                </label>
+                <label>
+                  <span>翻译策略</span>
+                  <select id="engineStrategy">
+                    <option value="general">通用</option>
+                    <option value="technical">技术内容</option>
+                    <option value="social">社交媒体</option>
+                    <option value="academic">学术文本</option>
+                    <option value="subtitle">字幕短句</option>
+                  </select>
+                </label>
+              </div>
+
+              <div id="customProviderSettings" class="setting-group engine-custom-fields" hidden>
+                <div class="group-title">
+                  <h3>自定义接口</h3>
+                  <span>密钥保存在本机，不进入同步设置</span>
+                </div>
+                <label class="setting-row field-row">
+                  <span>
+                    <strong>Endpoint</strong>
+                    <small>支持 /chat/completions，也支持返回 text / translatedText 的 POST JSON。</small>
+                  </span>
+                  <input id="customEndpoint" type="url" placeholder="https://api.example.com/v1/chat/completions" hidden>
+                  <input id="engineEndpoint" type="url" placeholder="https://api.example.com/v1/chat/completions">
+                </label>
+                <label class="setting-row field-row">
+                  <span>
+                    <strong>API Key</strong>
+                    <small>发送时作为 Bearer token，错误提示会做脱敏。</small>
+                  </span>
+                  <input id="customApiKey" type="password" autocomplete="off" placeholder="sk-..." hidden>
+                  <input id="engineApiKey" type="password" autocomplete="off" placeholder="sk-...">
+                </label>
+                <label class="setting-row field-row">
+                  <span>
+                    <strong>Model</strong>
+                    <small>OpenAI-compatible 接口使用，普通 POST JSON 可留空。</small>
+                  </span>
+                  <input id="customModel" type="text" autocomplete="off" placeholder="gpt-4o-mini" hidden>
+                  <input id="engineModel" type="text" autocomplete="off" placeholder="gpt-4o-mini">
+                </label>
+              </div>
+
+              <div class="setting-group">
+                <div class="group-title">
+                  <h3>引擎行为</h3>
+                  <span>仅自定义引擎会使用提示词和请求限制</span>
+                </div>
+                <label class="setting-row">
+                  <span>
+                    <strong>启用 AI 上下文</strong>
+                    <small>将当前站点和翻译策略放进提示词。</small>
+                  </span>
+                  <input id="engineAiContext" type="checkbox">
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>启用富文本翻译</strong>
+                    <small>提示模型保留链接、代码片段和段落节奏。</small>
+                  </span>
+                  <input id="engineRichText" type="checkbox">
+                </label>
+                <div class="compact-grid">
+                  <label>
+                    <span>每分钟最大请求数</span>
+                    <input id="engineMaxRequestsPerMinute" type="number" min="0" max="120" step="1">
+                  </label>
+                  <label>
+                    <span>单次最大文本长度</span>
+                    <input id="engineMaxTextLength" type="number" min="200" max="20000" step="100">
+                  </label>
+                  <label>
+                    <span>单次最大段落数</span>
+                    <input id="engineMaxSegments" type="number" min="1" max="250" step="1">
+                  </label>
+                  <label>
+                    <span>Temperature</span>
+                    <input id="engineTemperature" type="number" min="0" max="2" step="0.1">
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="group-title">
+                  <h3>提示词</h3>
+                  <span>{{text}}、{{to}}、{{from}}、{{glossary}}、{{imt_style_guide}} 会在请求时替换</span>
+                </div>
+                <label class="full-field">
+                  <span>系统提示词</span>
+                  <textarea id="engineSystemPrompt" spellcheck="false"></textarea>
+                </label>
+                <div class="textarea-grid">
+                  <label>
+                    <span>多段提示词</span>
+                    <textarea id="engineMultiPrompt" spellcheck="false"></textarea>
+                  </label>
+                  <label>
+                    <span>单段提示词</span>
+                    <textarea id="engineSinglePrompt" spellcheck="false"></textarea>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="group-title">
+                  <h3>翻译备份流程</h3>
+                  <span>按顺序尝试，前一个失败后自动切换下一个服务</span>
+                </div>
+                <label class="setting-row field-row">
+                  <span>
+                    <strong>服务顺序</strong>
+                    <small>每行一个服务 ID；默认优先 Google，再使用 Microsoft，最后使用自定义 API。</small>
+                  </span>
+                  <textarea id="providerFallbackOrder" spellcheck="false" rows="4" placeholder="google&#10;microsoft&#10;custom"></textarea>
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong>允许演示翻译兜底</strong>
+                    <small>仅用于确认 UI 链路，真实翻译应优先使用网络服务。</small>
+                  </span>
+                  <input id="fallbackToDemo" type="checkbox">
+                </label>
+                <div class="button-row">
+                  <button id="testService" class="primary-button" type="button">测试服务</button>
+                  <span id="serviceStatus" class="inline-status">尚未测试</span>
+                </div>
+              </div>
+            </section>
           </div>
         </section>
 

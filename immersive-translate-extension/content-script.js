@@ -826,6 +826,7 @@
       requestSettings.providerFallbackOrder.join(">"),
       requestSettings.customEndpoint,
       String(Boolean(requestSettings.fallbackToDemo)),
+      core.serviceEngineFingerprint(requestSettings),
       core.glossaryFingerprint(requestSettings),
       text
     ].join(":");
