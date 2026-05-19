@@ -1687,7 +1687,7 @@
 
   async function captureYouTubeSubtitles() {
     if (!isYouTubePage()) return null;
-    const tracks = findYouTubeCaptionTracks();
+    const tracks = await findYouTubeCaptionTracks();
     if (!tracks.length) return null;
     const track = chooseYouTubeCaptionTrack(tracks);
     if (!track || !track.baseUrl) return null;
@@ -1706,7 +1706,7 @@
     return hostname === "youtube.com" || hostname === "m.youtube.com" || hostname === "youtu.be";
   }
 
-  function findYouTubeCaptionTracks() {
+  async function findYouTubeCaptionTracks() {
     const currentVideoId = currentYouTubeVideoId();
     const responses = [];
     for (const script of Array.from(document.scripts || [])) {
@@ -1718,11 +1718,45 @@
       if (currentVideoId && responseVideoId && responseVideoId !== currentVideoId) continue;
       responses.push(response);
     }
+    const pageResponse = await readYouTubePlayerResponseFromPage();
+    if (pageResponse) {
+      const responseVideoId = pageResponse.videoDetails && pageResponse.videoDetails.videoId;
+      if (!currentVideoId || !responseVideoId || responseVideoId === currentVideoId) {
+        responses.push(pageResponse);
+      }
+    }
     return responses
       .flatMap((response) =>
         (((response.captions || {}).playerCaptionsTracklistRenderer || {}).captionTracks || [])
       )
       .filter((track) => track && track.baseUrl);
+  }
+
+  function readYouTubePlayerResponseFromPage() {
+    if (!isYouTubePage() || typeof window.postMessage !== "function") return Promise.resolve(null);
+    const requestId = `transly-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        window.removeEventListener("message", onMessage);
+        resolve(value);
+      };
+      const onMessage = (event) => {
+        if (event.source !== window || !event.data) return;
+        if (event.data.type !== "TRANSLY_YOUTUBE_PLAYER_RESPONSE" || event.data.requestId !== requestId) return;
+        finish(event.data.ok && event.data.response && typeof event.data.response === "object" ? event.data.response : null);
+      };
+      const timer = window.setTimeout(() => finish(null), 700);
+      window.addEventListener("message", onMessage);
+      try {
+        window.postMessage({ type: "TRANSLY_READ_YOUTUBE_PLAYER_RESPONSE", requestId }, window.location.origin || "*");
+      } catch (error) {
+        finish(null);
+      }
+    });
   }
 
   function currentYouTubeVideoId() {

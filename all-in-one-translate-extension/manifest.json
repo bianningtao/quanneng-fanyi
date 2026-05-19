@@ -77,6 +77,19 @@
   "content_scripts": [
     {
       "matches": [
+        "https://youtube.com/*",
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*",
+        "https://youtu.be/*"
+      ],
+      "js": [
+        "youtube-page-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
         "<all_urls>"
       ],
       "js": [
