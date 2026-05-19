@@ -340,6 +340,7 @@
       if (action === "floatingSettings") {
         openFloatingSettingsDialog();
       }
+      releaseFloatingPanelFocusAfterPointerClick(event, target);
     });
     panel.addEventListener("pointerover", showPanelTooltipForEvent);
     panel.addEventListener("focusin", showPanelTooltipForEvent);
@@ -447,6 +448,18 @@
     if (!state.panel) return;
     state.panel.classList.remove("has-tooltip");
     state.panel.removeAttribute("data-tooltip-action");
+  }
+
+  function releaseFloatingPanelFocusAfterPointerClick(event, target) {
+    if (!event || event.detail <= 0 || !target || !state.panel) return;
+    window.setTimeout(() => {
+      if (!state.panel) return;
+      const active = document.activeElement;
+      if (active && state.panel.contains(active) && typeof active.blur === "function") {
+        active.blur();
+      }
+      hidePanelTooltip();
+    }, 0);
   }
 
   function updateActionLabel(button) {
