@@ -613,11 +613,91 @@
         </section>
 
         <section class="settings-section" data-section="siteRules">
-          <div class="section-heading"><h2>站点规则</h2><p>为 GitHub、文档站、论坛等页面配置正文选择器和排除区域。</p></div>
+          <div class="section-heading"><h2>站点规则</h2><p>为 GitHub、文档站、论坛等页面配置正文选择器、排除区域和动态页面适配。</p></div>
           <div class="setting-group">
+            <div class="group-title">
+              <h3>可视化规则</h3>
+              <span>保存后写入现有 userRules，不改变内容脚本规则结构</span>
+            </div>
+            <div class="site-rule-workbench">
+              <aside class="site-rule-list-pane" aria-label="站点规则列表">
+                <div class="site-rule-toolbar">
+                  <button id="addSiteRule" class="secondary-button" type="button">新增规则</button>
+                  <button id="reloadSiteRules" class="secondary-button" type="button">从 JSON 刷新</button>
+                </div>
+                <div id="siteRuleList" class="site-rule-list"></div>
+              </aside>
+
+              <section class="site-rule-editor" aria-label="站点规则编辑">
+                <div class="site-rule-editor-header">
+                  <div>
+                    <p class="eyebrow">当前规则</p>
+                    <h3 id="siteRuleEditorTitle">未选择规则</h3>
+                  </div>
+                  <div class="site-rule-editor-actions">
+                    <button id="syncSiteRuleJson" class="secondary-button" type="button">同步到 JSON</button>
+                    <button id="deleteSiteRule" class="danger-button" type="button">删除</button>
+                  </div>
+                </div>
+
+                <div class="compact-grid site-rule-meta-grid">
+                  <label>
+                    <span>规则 ID</span>
+                    <input id="siteRuleId" type="text" autocomplete="off" placeholder="docs-site">
+                  </label>
+                  <label>
+                    <span>规则名称</span>
+                    <input id="siteRuleName" type="text" autocomplete="off" placeholder="文档站正文">
+                  </label>
+                  <label>
+                    <span>最小文本长度</span>
+                    <input id="siteRuleMinTextLength" type="number" min="0" max="500" step="1" placeholder="0">
+                  </label>
+                </div>
+
+                <label class="setting-row">
+                  <span>
+                    <strong>动态页面适配</strong>
+                    <small>控制 MutationObserver 处理新增内容的积极程度。</small>
+                  </span>
+                  <select id="siteRuleDynamicMode">
+                    <option value="auto">自动判断</option>
+                    <option value="eager">积极适配</option>
+                    <option value="off">关闭动态适配</option>
+                  </select>
+                </label>
+
+                <div class="textarea-grid site-rule-selector-grid">
+                  <label>
+                    <span>域名匹配</span>
+                    <textarea id="siteRuleMatches" spellcheck="false" placeholder="每行一个域名，例如：docs.example.com&#10;也可使用 *.example.com"></textarea>
+                  </label>
+                  <label>
+                    <span>包含选择器</span>
+                    <textarea id="siteRuleIncludeSelectors" spellcheck="false" placeholder="article p&#10;main .content"></textarea>
+                  </label>
+                  <label>
+                    <span>排除选择器</span>
+                    <textarea id="siteRuleExcludeSelectors" spellcheck="false" placeholder="nav&#10;.sidebar&#10;button"></textarea>
+                  </label>
+                  <label>
+                    <span>保持原文选择器</span>
+                    <textarea id="siteRuleStayOriginalSelectors" spellcheck="false" placeholder="pre&#10;code&#10;.notranslate"></textarea>
+                  </label>
+                </div>
+                <small id="siteRuleJsonStatus" class="site-rule-json-status" role="status"></small>
+              </section>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <div class="group-title">
+              <h3>高级 JSON</h3>
+              <span>保留旧配置和暂未可视化的字段</span>
+            </div>
             <label class="full-field">
               <span>自定义站点规则 JSON</span>
-              <textarea id="userRules" spellcheck="false" placeholder='[{"id":"example","matches":["example.com"],"selectors":["article p"],"excludeSelectors":["nav","button"]}]'></textarea>
+              <textarea id="userRules" spellcheck="false" placeholder='[{"id":"example","matches":["example.com"],"selectors":["article p"],"excludeSelectors":["nav","button"],"stayOriginalSelectors":["code"],"minTextLength":8,"dynamicMode":"auto"}]'></textarea>
             </label>
           </div>
         </section>

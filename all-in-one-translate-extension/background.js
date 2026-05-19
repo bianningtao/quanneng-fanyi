@@ -342,8 +342,8 @@ function providerReadiness(provider, settings) {
 async function translateWithProvider(provider, text, settings, url) {
   const engine = core.resolveServiceEngine(provider, settings);
   if (!engine) throw new Error(`翻译服务未配置：${provider}`);
-  if (engine.type === "google" || engine.provider === "google") return translateWithGoogle(text, settings, engine);
-  if (engine.type === "microsoft" || engine.provider === "microsoft") return translateWithMicrosoft(text, settings, engine);
+  if (engine.type === "google" || engine.provider === "google") return translateWithGoogle(text, settings, engine, url);
+  if (engine.type === "microsoft" || engine.provider === "microsoft") return translateWithMicrosoft(text, settings, engine, url);
   if (engine.type === "openai-compatible" || engine.type === "custom-json" || engine.provider === "custom") {
     return translateWithCustomProvider(text, settings, url, engine);
   }
@@ -357,8 +357,9 @@ async function translateWithProvider(provider, text, settings, url) {
   throw new Error(`不支持的翻译服务：${provider}`);
 }
 
-async function translateWithGoogle(text, settings) {
-  const url = core.buildGoogleTranslateUrl(text, settings.targetLanguage, settings.sourceLanguage);
+async function translateWithGoogle(text, settings, engine, pageUrl) {
+  const requestText = core.applyGlossaryToSourceText(text, settings, pageUrl);
+  const url = core.buildGoogleTranslateUrl(requestText, settings.targetLanguage, settings.sourceLanguage);
   if (!url.startsWith(GOOGLE_TRANSLATE_ORIGIN)) {
     throw new Error("Unexpected Google translate endpoint");
   }
@@ -378,11 +379,12 @@ async function translateWithGoogle(text, settings) {
   };
 }
 
-async function translateWithMicrosoft(text, settings, engine) {
+async function translateWithMicrosoft(text, settings, engine, pageUrl) {
   if (!engine.apiKey) {
     throw new Error("Microsoft 需要 API Key，无法使用未鉴权端点");
   }
-  const request = core.buildMicrosoftTranslateRequest(text, settings.targetLanguage, settings.sourceLanguage);
+  const requestText = core.applyGlossaryToSourceText(text, settings, pageUrl);
+  const request = core.buildMicrosoftTranslateRequest(requestText, settings.targetLanguage, settings.sourceLanguage);
   if (!request.url.startsWith(MICROSOFT_TRANSLATE_ORIGIN)) {
     throw new Error("Unexpected Microsoft translate endpoint");
   }

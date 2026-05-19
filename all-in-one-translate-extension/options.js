@@ -85,6 +85,21 @@ const controls = {
   floatingBallPosition: document.querySelector("#floatingBallPosition"),
   floatingBallOpacity: document.querySelector("#floatingBallOpacity"),
   floatingBallBlockedDomains: document.querySelector("#floatingBallBlockedDomains"),
+  siteRuleList: document.querySelector("#siteRuleList"),
+  addSiteRule: document.querySelector("#addSiteRule"),
+  reloadSiteRules: document.querySelector("#reloadSiteRules"),
+  syncSiteRuleJson: document.querySelector("#syncSiteRuleJson"),
+  deleteSiteRule: document.querySelector("#deleteSiteRule"),
+  siteRuleEditorTitle: document.querySelector("#siteRuleEditorTitle"),
+  siteRuleId: document.querySelector("#siteRuleId"),
+  siteRuleName: document.querySelector("#siteRuleName"),
+  siteRuleMatches: document.querySelector("#siteRuleMatches"),
+  siteRuleIncludeSelectors: document.querySelector("#siteRuleIncludeSelectors"),
+  siteRuleExcludeSelectors: document.querySelector("#siteRuleExcludeSelectors"),
+  siteRuleStayOriginalSelectors: document.querySelector("#siteRuleStayOriginalSelectors"),
+  siteRuleMinTextLength: document.querySelector("#siteRuleMinTextLength"),
+  siteRuleDynamicMode: document.querySelector("#siteRuleDynamicMode"),
+  siteRuleJsonStatus: document.querySelector("#siteRuleJsonStatus"),
   userRules: document.querySelector("#userRules"),
   settingsJson: document.querySelector("#settingsJson"),
   saveSettings: document.querySelector("#saveSettings"),
@@ -116,6 +131,8 @@ const sectionTitles = {
 
 let currentSettings = createDefaultOptionSettings();
 let activeEngineId = "google";
+let activeSiteRuleIndex = -1;
+let userRulesJsonDirty = false;
 let saveTimer = null;
 
 initOptions();
@@ -261,6 +278,7 @@ function bindForm() {
   controls.testService.addEventListener("click", testService);
   controls.exportSettings.addEventListener("click", exportSettings);
   controls.importSettings.addEventListener("click", importSettings);
+  bindSiteRuleEditor();
 }
 
 function isActionControl(name) {
@@ -285,6 +303,13 @@ function isActionControl(name) {
     "stylePreview",
     "subtitlePreview",
     "stylePresetGrid",
+    "siteRuleList",
+    "addSiteRule",
+    "reloadSiteRules",
+    "syncSiteRuleJson",
+    "deleteSiteRule",
+    "siteRuleEditorTitle",
+    "siteRuleJsonStatus",
     "sectionTitle",
     "settingsJson"
   ].includes(name);
@@ -360,6 +385,7 @@ function applySettings(settings) {
   controls.floatingBallOpacity.value = settings.floatingBallOpacity;
   controls.floatingBallBlockedDomains.value = settings.floatingBallBlockedDomains.join("\n");
   controls.userRules.value = JSON.stringify(settings.userRules || [], null, 2);
+  renderSiteRuleEditor(settings.userRules || [], activeSiteRuleIndex);
   renderStylePresetGrid(settings);
   updatePreview();
   renderEngineList(settings);
@@ -401,6 +427,7 @@ function scheduleSave() {
 
 function collectSettings() {
   commitActiveEngineForm();
+  commitActiveSiteRuleForm();
   const rules = parseUserRules();
   return reconcileServiceSettings(normalizeOptionSettings({
     ...currentSettings,
@@ -606,6 +633,268 @@ function renderStylePresetGrid(settings) {
       </button>
     `)
     .join("");
+}
+
+function bindSiteRuleEditor() {
+  if (!controls.siteRuleList) return;
+  [
+    controls.siteRuleId,
+    controls.siteRuleName,
+    controls.siteRuleMatches,
+    controls.siteRuleIncludeSelectors,
+    controls.siteRuleExcludeSelectors,
+    controls.siteRuleStayOriginalSelectors,
+    controls.siteRuleMinTextLength,
+    controls.siteRuleDynamicMode
+  ].forEach((control) => {
+    control.addEventListener("input", () => {
+      userRulesJsonDirty = false;
+    }, true);
+    control.addEventListener("change", () => {
+      userRulesJsonDirty = false;
+    }, true);
+  });
+
+  controls.siteRuleList.addEventListener("click", (event) => {
+    const button = event.target && event.target.closest("[data-site-rule-index]");
+    if (!button) return;
+    try {
+      commitActiveSiteRuleForm();
+      persistFromForm();
+      renderSiteRuleEditor(readSiteRulesForEditor(), Number(button.getAttribute("data-site-rule-index")));
+    } catch (error) {
+      setSiteRuleStatus(error.message, true);
+    }
+  });
+
+  controls.addSiteRule.addEventListener("click", () => {
+    try {
+      const rules = readSiteRulesForEditor();
+      rules.push(createEmptySiteRule(rules.length));
+      setUserRulesJson(rules);
+      renderSiteRuleEditor(rules, rules.length - 1);
+      setSiteRuleStatus("已新增规则，请填写域名和包含选择器后保存。");
+    } catch (error) {
+      setSiteRuleStatus(error.message, true);
+    }
+  });
+
+  controls.reloadSiteRules.addEventListener("click", () => {
+    try {
+      const rules = readSiteRulesForEditor();
+      renderSiteRuleEditor(rules, activeSiteRuleIndex);
+      setSiteRuleStatus(`已从 JSON 读取 ${rules.length} 条规则。`);
+    } catch (error) {
+      setSiteRuleStatus(error.message, true);
+    }
+  });
+
+  controls.syncSiteRuleJson.addEventListener("click", () => {
+    try {
+      commitActiveSiteRuleForm();
+      renderSiteRuleEditor(readSiteRulesForEditor(), activeSiteRuleIndex);
+      persistFromForm(true);
+    } catch (error) {
+      setSiteRuleStatus(error.message, true);
+    }
+  });
+
+  controls.deleteSiteRule.addEventListener("click", () => {
+    try {
+      const rules = readSiteRulesForEditor();
+      if (activeSiteRuleIndex < 0 || activeSiteRuleIndex >= rules.length) return;
+      rules.splice(activeSiteRuleIndex, 1);
+      const nextIndex = Math.min(activeSiteRuleIndex, rules.length - 1);
+      setUserRulesJson(rules);
+      renderSiteRuleEditor(rules, nextIndex);
+      persistFromForm(true);
+    } catch (error) {
+      setSiteRuleStatus(error.message, true);
+    }
+  });
+
+  controls.userRules.addEventListener("change", () => {
+    try {
+      renderSiteRuleEditor(readSiteRulesForEditor(), activeSiteRuleIndex);
+      userRulesJsonDirty = false;
+    } catch (error) {
+      setSiteRuleStatus(error.message, true);
+    }
+  });
+  controls.userRules.addEventListener("input", () => {
+    userRulesJsonDirty = true;
+    setSiteRuleStatus("JSON 已修改，保存会以 JSON 内容为准；点击“从 JSON 刷新”更新上方表单。");
+  });
+}
+
+function renderSiteRuleEditor(rules = [], preferredIndex = activeSiteRuleIndex) {
+  if (!controls.siteRuleList) return;
+  const safeRules = Array.isArray(rules) ? rules : [];
+  const nextIndex = preferredIndex >= 0 && preferredIndex < safeRules.length
+    ? preferredIndex
+    : (safeRules.length ? 0 : -1);
+  activeSiteRuleIndex = nextIndex;
+  controls.siteRuleList.innerHTML = safeRules.length
+    ? safeRules.map((rule, index) => renderSiteRuleButton(rule, index, index === nextIndex)).join("")
+    : `<div class="site-rule-empty">还没有站点规则。点击“新增规则”开始配置。</div>`;
+
+  if (nextIndex < 0) {
+    setSiteRuleFormDisabled(true);
+    controls.siteRuleEditorTitle.textContent = "未选择规则";
+    fillSiteRuleForm({
+      id: "",
+      name: "",
+      matches: [],
+      includeSelectors: [],
+      excludeSelectors: [],
+      stayOriginalSelectors: [],
+      minTextLength: 0,
+      dynamicMode: "auto"
+    });
+    setSiteRuleStatus("站点规则会保存在 userRules 中，旧 JSON 字段会继续保留。");
+    return;
+  }
+
+  setSiteRuleFormDisabled(false);
+  const rule = normalizeRuleForEditor(safeRules[nextIndex]);
+  controls.siteRuleEditorTitle.textContent = rule.name || rule.id || `规则 ${nextIndex + 1}`;
+  fillSiteRuleForm(rule);
+  setSiteRuleStatus(`正在编辑第 ${nextIndex + 1} 条规则，共 ${safeRules.length} 条。`);
+}
+
+function renderSiteRuleButton(rule, index, active) {
+  const normalized = normalizeRuleForEditor(rule);
+  const title = normalized.name || normalized.id || `规则 ${index + 1}`;
+  const matchSummary = normalized.matches.length ? normalized.matches.join(" / ") : "未填写域名";
+  const selectorCount = normalized.includeSelectors.length;
+  const dynamicLabel = dynamicModeLabel(normalized.dynamicMode);
+  return `
+    <button class="site-rule-row ${active ? "is-active" : ""}" type="button" data-site-rule-index="${index}">
+      <span>
+        <strong>${escapeHtml(title)}</strong>
+        <small>${escapeHtml(matchSummary)}</small>
+      </span>
+      <i>${escapeHtml(selectorCount)} 个选择器 · ${escapeHtml(dynamicLabel)}</i>
+    </button>
+  `;
+}
+
+function fillSiteRuleForm(rule) {
+  controls.siteRuleId.value = rule.id || "";
+  controls.siteRuleName.value = rule.name || "";
+  controls.siteRuleMatches.value = rule.matches.join("\n");
+  controls.siteRuleIncludeSelectors.value = rule.includeSelectors.join("\n");
+  controls.siteRuleExcludeSelectors.value = rule.excludeSelectors.join("\n");
+  controls.siteRuleStayOriginalSelectors.value = rule.stayOriginalSelectors.join("\n");
+  controls.siteRuleMinTextLength.value = rule.minTextLength || "";
+  controls.siteRuleDynamicMode.value = rule.dynamicMode || "auto";
+}
+
+function setSiteRuleFormDisabled(disabled) {
+  [
+    controls.siteRuleId,
+    controls.siteRuleName,
+    controls.siteRuleMatches,
+    controls.siteRuleIncludeSelectors,
+    controls.siteRuleExcludeSelectors,
+    controls.siteRuleStayOriginalSelectors,
+    controls.siteRuleMinTextLength,
+    controls.siteRuleDynamicMode,
+    controls.syncSiteRuleJson,
+    controls.deleteSiteRule
+  ].forEach((control) => {
+    if (control) control.disabled = disabled;
+  });
+}
+
+function commitActiveSiteRuleForm() {
+  if (!controls.siteRuleList || activeSiteRuleIndex < 0) return;
+  if (userRulesJsonDirty) return;
+  const rules = readSiteRulesForEditor();
+  if (activeSiteRuleIndex >= rules.length) return;
+  const previous = rules[activeSiteRuleIndex] || {};
+  const includeSelectors = parseLines(controls.siteRuleIncludeSelectors.value);
+  const minTextLength = Math.min(500, Math.max(0, Math.round(Number(controls.siteRuleMinTextLength.value) || 0)));
+  rules[activeSiteRuleIndex] = {
+    ...previous,
+    id: controls.siteRuleId.value.trim() || previous.id || `custom-${activeSiteRuleIndex + 1}`,
+    name: controls.siteRuleName.value.trim(),
+    matches: parseLines(controls.siteRuleMatches.value),
+    includeSelectors,
+    selectors: includeSelectors.slice(),
+    excludeSelectors: parseLines(controls.siteRuleExcludeSelectors.value),
+    stayOriginalSelectors: parseLines(controls.siteRuleStayOriginalSelectors.value),
+    minTextLength,
+    dynamicMode: ["auto", "off", "eager"].includes(controls.siteRuleDynamicMode.value)
+      ? controls.siteRuleDynamicMode.value
+      : "auto"
+  };
+  setUserRulesJson(rules);
+}
+
+function readSiteRulesForEditor() {
+  const raw = controls.userRules.value.trim();
+  if (!raw) return [];
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error("站点规则 JSON 必须是数组");
+  return parsed;
+}
+
+function setUserRulesJson(rules) {
+  controls.userRules.value = JSON.stringify(rules, null, 2);
+  userRulesJsonDirty = false;
+}
+
+function normalizeRuleForEditor(rule) {
+  const source = rule && typeof rule === "object" ? rule : {};
+  const includeSelectors = siteRuleListValue(
+    source.includeSelectors && siteRuleListValue(source.includeSelectors).length
+      ? source.includeSelectors
+      : source.selectors
+  );
+  return {
+    ...source,
+    id: String(source.id || "").trim(),
+    name: String(source.name || "").trim(),
+    matches: siteRuleListValue(source.matches),
+    includeSelectors,
+    excludeSelectors: siteRuleListValue(source.excludeSelectors),
+    stayOriginalSelectors: siteRuleListValue(source.stayOriginalSelectors),
+    minTextLength: Math.min(500, Math.max(0, Math.round(Number(source.minTextLength) || 0))),
+    dynamicMode: ["auto", "off", "eager"].includes(source.dynamicMode) ? source.dynamicMode : "auto"
+  };
+}
+
+function siteRuleListValue(value) {
+  return Array.isArray(value)
+    ? value.map((item) => String(item || "").trim()).filter(Boolean)
+    : parseLines(value);
+}
+
+function createEmptySiteRule(index) {
+  return {
+    id: `custom-${index + 1}`,
+    name: "新站点规则",
+    matches: [],
+    includeSelectors: ["article", "main", "p"],
+    selectors: ["article", "main", "p"],
+    excludeSelectors: ["nav", "header", "footer", "button"],
+    stayOriginalSelectors: ["pre", "code"],
+    minTextLength: 8,
+    dynamicMode: "auto"
+  };
+}
+
+function dynamicModeLabel(value) {
+  if (value === "eager") return "积极适配";
+  if (value === "off") return "关闭动态";
+  return "自动动态";
+}
+
+function setSiteRuleStatus(message, isError) {
+  if (!controls.siteRuleJsonStatus) return;
+  controls.siteRuleJsonStatus.textContent = message || "";
+  controls.siteRuleJsonStatus.classList.toggle("is-error", Boolean(isError));
 }
 
 function renderEngineList(settings = currentSettings) {

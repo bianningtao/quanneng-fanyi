@@ -42,6 +42,7 @@ const controls = {
   fileTranslationPreview: document.querySelector("#fileTranslationPreview"),
   translateFile: document.querySelector("#translateFile"),
   downloadFileTranslation: document.querySelector("#downloadFileTranslation"),
+  downloadBilingualFileTranslation: document.querySelector("#downloadBilingualFileTranslation"),
   clearFileTranslation: document.querySelector("#clearFileTranslation"),
   saveSettings: document.querySelector("#saveSettings"),
   openOptions: document.querySelector("#openOptions"),
@@ -127,7 +128,8 @@ function bindActions() {
   controls.fileDropZone.addEventListener("dragleave", handleFileDragLeave);
   controls.fileDropZone.addEventListener("drop", handleFileDrop);
   controls.translateFile.addEventListener("click", translateSelectedDocument);
-  controls.downloadFileTranslation.addEventListener("click", downloadTranslatedDocument);
+  controls.downloadFileTranslation.addEventListener("click", () => downloadTranslatedDocument("translated"));
+  controls.downloadBilingualFileTranslation.addEventListener("click", () => downloadTranslatedDocument("bilingual"));
   controls.clearFileTranslation.addEventListener("click", clearSelectedDocument);
   controls.openOptions.addEventListener("click", () => chrome.runtime.openOptionsPage());
   controls.provider.addEventListener("change", () => updateProviderFields(controls.provider.value));
@@ -369,7 +371,7 @@ async function handleDocumentFile(file) {
     translatedDocument = null;
     controls.fileSourcePreview.value = buildSourcePreview(selectedDocument);
     controls.fileTranslationPreview.value = "";
-    controls.downloadFileTranslation.disabled = true;
+    resetFileDownloadControls();
     controls.fileMeta.innerHTML = buildFileMeta(selectedDocument);
     setStatus("文件已读取");
   } catch (error) {
@@ -378,7 +380,7 @@ async function handleDocumentFile(file) {
     controls.fileMeta.textContent = error.message || String(error);
     controls.fileSourcePreview.value = "";
     controls.fileTranslationPreview.value = "";
-    controls.downloadFileTranslation.disabled = true;
+    resetFileDownloadControls();
     setStatus("文件读取失败");
   }
 }
@@ -404,12 +406,15 @@ async function translateSelectedDocument() {
     })
   );
   if (!sourceSegments.length) {
+    translatedDocument = null;
+    resetFileDownloadControls();
+    controls.fileTranslationPreview.value = "文件中没有可翻译文本";
     setStatus("文件中没有可翻译文本");
     return;
   }
 
   controls.translateFile.disabled = true;
-  controls.downloadFileTranslation.disabled = true;
+  resetFileDownloadControls();
   controls.fileTranslationPreview.value = "翻译中...";
   try {
     const translations = await translateDocumentSegments(sourceSegments, settings, (done, total) => {
@@ -417,10 +422,11 @@ async function translateSelectedDocument() {
     });
     translatedDocument = buildTranslatedDocument(selectedDocument, translations);
     controls.fileTranslationPreview.value = translatedDocument.preview;
-    controls.downloadFileTranslation.disabled = false;
-    controls.downloadFileTranslation.textContent = translatedDocument.isSubtitle ? "下载双语字幕" : "下载译文";
+    updateFileDownloadControls();
     setStatus(translations.warning || `文件翻译完成：${translations.length} 段`);
   } catch (error) {
+    translatedDocument = null;
+    resetFileDownloadControls();
     controls.fileTranslationPreview.value = error.message || String(error);
     setStatus("文件翻译失败");
   } finally {
@@ -457,17 +463,26 @@ async function translateDocumentSegments(segments, settings, onProgress) {
   return translations;
 }
 
-function downloadTranslatedDocument() {
-  if (!translatedDocument) return;
-  const blob = new Blob([translatedDocument.content], { type: translatedDocument.mimeType });
+function downloadTranslatedDocument(kind = "translated") {
+  if (!translatedDocument) {
+    setStatus("请先翻译文件");
+    return;
+  }
+  const output = getDocumentDownloadOutput(kind);
+  if (!hasDownloadableContent(output)) {
+    setStatus("没有可下载内容");
+    return;
+  }
+  const blob = new Blob([output.content], { type: output.mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = translatedDocument.filename;
+  link.download = output.filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  setStatus(`已下载：${output.filename}`);
 }
 
 function clearSelectedDocument() {
@@ -477,8 +492,7 @@ function clearSelectedDocument() {
   controls.fileMeta.textContent = "尚未选择文件";
   controls.fileSourcePreview.value = "";
   controls.fileTranslationPreview.value = "";
-  controls.downloadFileTranslation.disabled = true;
-  controls.downloadFileTranslation.textContent = "下载译文";
+  resetFileDownloadControls();
   setStatus("已清空文件");
 }
 
@@ -616,13 +630,27 @@ function findSegmentBoundary(text, maxLength) {
 function buildTranslatedDocument(documentData, translations) {
   const translationMap = new Map(translations.map((entry) => [entry.id, entry.text]));
   if (documentData.kind === "subtitle") {
-    const content = serializeBilingualSubtitle(documentData.cues, translationMap, documentData.format);
+    const mimeType = documentData.format === "vtt" ? "text/vtt;charset=utf-8" : "application/x-subrip;charset=utf-8";
+    const translatedContent = serializeTranslatedSubtitle(documentData.cues, translationMap, documentData.format);
+    const bilingualContent = serializeBilingualSubtitle(documentData.cues, translationMap, documentData.format);
     return {
       isSubtitle: true,
-      content,
-      preview: content,
+      content: bilingualContent,
+      preview: bilingualContent,
       filename: buildDownloadFilename(documentData.filename, `.bilingual.${documentData.format}`),
-      mimeType: documentData.format === "vtt" ? "text/vtt;charset=utf-8" : "application/x-subrip;charset=utf-8"
+      mimeType,
+      outputs: {
+        translated: {
+          content: translatedContent,
+          filename: buildDownloadFilename(documentData.filename, `.translated.${documentData.format}`),
+          mimeType
+        },
+        bilingual: {
+          content: bilingualContent,
+          filename: buildDownloadFilename(documentData.filename, `.bilingual.${documentData.format}`),
+          mimeType
+        }
+      }
     };
   }
   const content = documentData.segments.map((segment) => translationMap.get(segment.id) || segment.text).join("\n\n");
@@ -632,15 +660,20 @@ function buildTranslatedDocument(documentData, translations) {
     content,
     preview: content,
     filename: buildDownloadFilename(documentData.filename, `.translated${extension}`),
-    mimeType: documentData.extension === "md" ? "text/markdown;charset=utf-8" : "text/plain;charset=utf-8"
+    mimeType: documentData.extension === "md" ? "text/markdown;charset=utf-8" : "text/plain;charset=utf-8",
+    outputs: {
+      translated: {
+        content,
+        filename: buildDownloadFilename(documentData.filename, `.translated${extension}`),
+        mimeType: documentData.extension === "md" ? "text/markdown;charset=utf-8" : "text/plain;charset=utf-8"
+      }
+    }
   };
 }
 
 function serializeBilingualSubtitle(cues, translationMap, format) {
   const blocks = cues.map((cue, index) => {
-    const translated = translationMap instanceof Map
-      ? translationMap.get(cue.id) || ""
-      : translationMap[cue.id] || "";
+    const translated = getSubtitleTranslation(cue, translationMap);
     const lines = [];
     if (format === "srt") {
       lines.push(String(index + 1));
@@ -653,6 +686,56 @@ function serializeBilingualSubtitle(cues, translationMap, format) {
     return lines.join("\n");
   });
   return `${format === "vtt" ? "WEBVTT\n\n" : ""}${blocks.join("\n\n")}\n`;
+}
+
+function serializeTranslatedSubtitle(cues, translationMap, format) {
+  const blocks = cues.map((cue, index) => {
+    const translated = getSubtitleTranslation(cue, translationMap) || cue.text;
+    const lines = [];
+    if (format === "srt") {
+      lines.push(String(index + 1));
+    } else if (cue.identifier) {
+      lines.push(cue.identifier);
+    }
+    lines.push(cue.timing);
+    lines.push(...String(translated).split(/\n/u));
+    return lines.join("\n");
+  });
+  return `${format === "vtt" ? "WEBVTT\n\n" : ""}${blocks.join("\n\n")}\n`;
+}
+
+function getSubtitleTranslation(cue, translationMap) {
+  const translated = translationMap instanceof Map
+    ? translationMap.get(cue.id)
+    : translationMap[cue.id];
+  return String(translated || "").trim();
+}
+
+function resetFileDownloadControls() {
+  controls.downloadFileTranslation.disabled = true;
+  controls.downloadFileTranslation.textContent = "下载译文";
+  controls.downloadBilingualFileTranslation.disabled = true;
+  controls.downloadBilingualFileTranslation.hidden = true;
+}
+
+function updateFileDownloadControls() {
+  const translatedOutput = getDocumentDownloadOutput("translated");
+  const bilingualOutput = getDocumentDownloadOutput("bilingual");
+  controls.downloadFileTranslation.textContent = translatedDocument && translatedDocument.isSubtitle ? "下载译文字幕" : "下载译文";
+  controls.downloadFileTranslation.disabled = !hasDownloadableContent(translatedOutput);
+  controls.downloadBilingualFileTranslation.hidden = !(translatedDocument && translatedDocument.isSubtitle);
+  controls.downloadBilingualFileTranslation.disabled = !hasDownloadableContent(bilingualOutput);
+}
+
+function getDocumentDownloadOutput(kind) {
+  if (!translatedDocument) return null;
+  if (translatedDocument.outputs && translatedDocument.outputs[kind]) return translatedDocument.outputs[kind];
+  if (kind === "translated") return translatedDocument;
+  return null;
+}
+
+function hasDownloadableContent(output) {
+  return Boolean(output && String(output.content || "").trim() && output.filename && output.mimeType);
 }
 
 function buildSourcePreview(documentData) {
@@ -670,7 +753,7 @@ function buildFileMeta(documentData) {
   return [
     `<strong>${escapeHtml(documentData.filename)}</strong>`,
     `<span>${label}文件，${documentData.segments.length} 个待翻译分段</span>`,
-    documentData.kind === "subtitle" ? "<span>下载将保留时间轴并输出双语字幕。</span>" : ""
+    documentData.kind === "subtitle" ? "<span>下载将保留时间轴，可输出译文字幕或双语字幕。</span>" : ""
   ].filter(Boolean).join("");
 }
 
@@ -728,6 +811,7 @@ window.TranslyDocumentTools = {
   parseVtt,
   segmentPlainText,
   serializeBilingualSubtitle,
+  serializeTranslatedSubtitle,
   buildTranslatedDocument,
   buildDownloadFilename,
   translateDocumentSegments

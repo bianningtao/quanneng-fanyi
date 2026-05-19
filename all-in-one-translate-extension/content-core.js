@@ -1258,6 +1258,17 @@
     return output;
   }
 
+  function applyGlossaryToSourceText(sourceText, settings, urlLike) {
+    let output = String(sourceText || "");
+    const terms = resolveGlossaryTerms(output, settings, urlLike);
+    for (const term of terms) {
+      if (!term.target || term.source === term.target) continue;
+      if (termAppearsInText(output, term.target)) continue;
+      output = replaceGlossaryTerm(output, term.source, term.target);
+    }
+    return output;
+  }
+
   function replaceGlossaryTerm(text, source, target) {
     const escaped = escapeRegExp(source);
     if (!escaped) return text;
@@ -1530,9 +1541,10 @@
 
   function domainMatches(hostname, domain) {
     const normalizedDomain = normalizeDomain(domain);
+    const wildcardDomain = normalizedDomain.startsWith("*.") ? normalizedDomain.slice(2) : normalizedDomain;
     return Boolean(
-      normalizedDomain &&
-        (hostname === normalizedDomain || hostname.endsWith(`.${normalizedDomain}`))
+      wildcardDomain &&
+        (hostname === wildcardDomain || hostname.endsWith(`.${wildcardDomain}`))
     );
   }
 
@@ -1809,7 +1821,8 @@
     return asArray(rule.matches).some((match) => {
       if (match === "*") return true;
       const normalized = String(match).replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-      return hostname === normalized || hostname.endsWith(`.${normalized}`);
+      const wildcardNormalized = normalized.startsWith("*.") ? normalized.slice(2) : normalized;
+      return hostname === wildcardNormalized || hostname.endsWith(`.${wildcardNormalized}`);
     });
   }
 
@@ -1926,6 +1939,7 @@
     normalizeGlossaryTerms,
     resolveGlossaryTerms,
     buildGlossaryInstruction,
+    applyGlossaryToSourceText,
     applyGlossaryToTranslation,
     glossaryFingerprint,
     normalizeTargetLanguage,

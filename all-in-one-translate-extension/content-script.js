@@ -648,7 +648,7 @@
   }
 
   function shouldUseSmartSupplementalDiscovery() {
-    return state.rule.id === "default" || state.rule.id === "reddit";
+    return ruleDynamicMode() === "eager" || state.rule.id === "default" || state.rule.id === "reddit";
   }
 
   function collectFromSelectors(root, selectors, limit, nodes, seen, options = {}) {
@@ -1634,13 +1634,14 @@
 
   function installMutationObserver() {
     if (!document.body || state.dynamicObserver || !("MutationObserver" in window)) return;
+    if (ruleDynamicMode() === "off") return;
     state.dynamicObserver = new MutationObserver((mutations) => {
       if (!shouldReactToMutations(mutations)) return;
       if (state.translating) {
         state.dynamicPending = true;
         return;
       }
-      scheduleDynamicTranslation(520);
+      scheduleDynamicTranslation(ruleDynamicMode() === "eager" ? 260 : 520);
     });
     state.dynamicObserver.observe(document.body, {
       childList: true,
@@ -1651,6 +1652,7 @@
 
   function shouldReactToMutations(mutations) {
     if (!state.settings.enabled || document.hidden) return false;
+    if (ruleDynamicMode() === "off") return false;
     if (!state.pageTranslated && !state.settings.autoTranslate && !state.autoTranslateActive) return false;
     return mutations.some((mutation) => {
       const nodes = mutation.type === "characterData"
@@ -1687,7 +1689,9 @@
   function dynamicMutationSelectors() {
     return Array.from(
       new Set([
-        ...(state.rule.selectors || []),
+        ...((state.rule.includeSelectors && state.rule.includeSelectors.length
+          ? state.rule.includeSelectors
+          : state.rule.selectors) || []),
         ...siteContentOverrideSelectors(),
         "p",
         "li",
@@ -1719,6 +1723,12 @@
     return elements.some((element) => isCandidateElement(element, { visibleOnly: false }));
   }
 
+  function ruleDynamicMode() {
+    return state.rule && ["auto", "off", "eager"].includes(state.rule.dynamicMode)
+      ? state.rule.dynamicMode
+      : "auto";
+  }
+
   function installUrlChangeDetection() {
     patchHistoryMethod("pushState");
     patchHistoryMethod("replaceState");
@@ -1748,6 +1758,7 @@
 
   function scheduleDynamicTranslation(delay) {
     if (!state.settings.enabled || document.hidden) return;
+    if (ruleDynamicMode() === "off") return;
     if (!state.pageTranslated && !state.settings.autoTranslate && !state.autoTranslateActive) return;
     if (state.translating) {
       state.dynamicPending = true;
