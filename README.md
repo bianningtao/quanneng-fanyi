@@ -183,3 +183,9 @@ scripts/package-extension.sh
 - `quanneng-fanyi-v0.1.1.zip.sha256`
 
 发布到 GitHub Release 时，将 zip 和 sha256 文件作为附件上传即可。
+
+### Release 规则
+
+- 每次更新 Release 都必须新建一个版本号和对应 tag，例如从 `v0.1.1` 升到 `v0.1.2`。
+- 新版本发布后需要标注为 GitHub 最新版，也就是非 draft、非 prerelease 的 Latest release。
+- 旧版本 Release 和附件必须保留，不删除、不覆盖，方便回退和历史下载。
