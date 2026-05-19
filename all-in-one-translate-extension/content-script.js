@@ -404,7 +404,7 @@
     state.panel.setAttribute("data-position", state.settings.floatingBallPosition);
     state.panel.style.setProperty(
       "--transly-floating-idle-opacity",
-      String(Math.min(1, Math.max(0, state.settings.floatingBallOpacity / 100)))
+      String(Math.min(1, Math.max(0.58, state.settings.floatingBallOpacity / 100)))
     );
     const mainButton = state.panel.querySelector(".transly-panel-main");
     const tooltip = state.panel.querySelector(".transly-panel-tooltip");
@@ -594,10 +594,13 @@
   function collectCandidates(limit, options = {}) {
     const root = document.body;
     if (!root) return [];
-    const selectors = state.rule.selectors && state.rule.selectors.length
-      ? state.rule.selectors
+    const ruleSelectors = state.rule.includeSelectors && state.rule.includeSelectors.length
+      ? state.rule.includeSelectors
+      : state.rule.selectors;
+    const selectors = ruleSelectors && ruleSelectors.length
+      ? ruleSelectors
       : core.DEFAULT_SELECTORS;
-    const hasSiteSpecificSelectors = state.rule.id !== "default" && state.rule.selectors && state.rule.selectors.length;
+    const hasSiteSpecificSelectors = state.rule.id !== "default" && selectors.length;
     const seen = new Set();
     const nodes = [];
 
@@ -768,11 +771,11 @@
   }
 
   function shouldTranslateText(text) {
-    return (
-      core.isTranslatableText(text) &&
-      !core.hasSensitiveText(text, state.settings) &&
-      !core.shouldSkipByLanguage(text, state.settings.targetLanguage, state.settings, location.href)
-    );
+    return core.shouldTranslateTextBlock(text, state.settings, {
+      url: location.href,
+      rule: state.rule,
+      targetLanguage: state.settings.targetLanguage
+    });
   }
 
   function getElementSourceText(element) {
@@ -904,7 +907,8 @@
       type: "TRANSLY_TRANSLATE",
       text,
       url: location.href,
-      settings: requestSettings
+      settings: requestSettings,
+      forceTranslateWhenMixedLanguage: Boolean(state.rule && state.rule.forceTranslateWhenMixedLanguage)
     });
     if (!response || !response.ok) {
       throw new Error((response && response.error) || "翻译失败");

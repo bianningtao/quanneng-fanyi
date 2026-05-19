@@ -72,6 +72,41 @@
             </div>
           </section>
 
+          <section class="panel file-panel" data-panel-tab="files">
+            <div class="translator-card file-translator-card">
+              <div>
+                <h2>文件/媒体</h2>
+                <p class="hint">支持 .txt、.md、.srt、.vtt；PDF 和 OCR 暂未启用。</p>
+              </div>
+
+              <label id="fileDropZone" class="file-drop-zone" for="documentFileInput">
+                <input id="documentFileInput" type="file" accept=".txt,.md,.srt,.vtt,text/plain,text/markdown,text/vtt">
+                <span class="file-drop-icon" aria-hidden="true">↧</span>
+                <strong>拖拽文件到这里，或点击选择</strong>
+                <small>字幕会保留时间轴，下载时生成双语 cue。</small>
+              </label>
+
+              <article id="fileMeta" class="file-meta">尚未选择文件</article>
+
+              <div class="preview-grid">
+                <label>
+                  <span>源文预览</span>
+                  <textarea id="fileSourcePreview" readonly placeholder="选择文件后显示源文"></textarea>
+                </label>
+                <label>
+                  <span>译文预览</span>
+                  <textarea id="fileTranslationPreview" readonly placeholder="翻译完成后显示译文"></textarea>
+                </label>
+              </div>
+
+              <div class="file-action-row">
+                <button id="translateFile" class="primary" type="button">翻译文件</button>
+                <button id="downloadFileTranslation" class="secondary" type="button" disabled>下载译文</button>
+                <button id="clearFileTranslation" class="ghost" type="button">清空</button>
+              </div>
+            </div>
+          </section>
+
           <section class="panel settings-panel" data-panel-tab="settings">
             <div class="settings-group">
               <h2>页面翻译</h2>
@@ -230,6 +265,10 @@
             <button class="rail-button tab is-active" type="button" data-tab-target="text">
               <span>文</span>
               <small>文本</small>
+            </button>
+            <button class="rail-button tab" type="button" data-tab-target="files">
+              <span>档</span>
+              <small>文件</small>
             </button>
           </nav>
           <nav class="rail-footer" aria-label="底部入口">

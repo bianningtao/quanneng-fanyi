@@ -680,7 +680,7 @@
       floatingBallHoverOnly: true,
       floatingBallClickAction: "toggle",
       floatingBallPosition: "right",
-      floatingBallOpacity: 30,
+      floatingBallOpacity: 65,
       floatingBallBlockedDomains: [],
       translationMaskEnabled: false,
       maxBlocks: 80,
@@ -1340,15 +1340,51 @@
     if (!Array.isArray(value)) return [];
     return value
       .filter((rule) => rule && typeof rule === "object")
-      .map((rule) => ({
-        ...rule,
-        id: String(rule.id || "custom").trim() || "custom",
-        matches: asArray(rule.matches).map(String).filter(Boolean),
-        selectors: asArray(rule.selectors).map(String).filter(Boolean),
-        excludeSelectors: asArray(rule.excludeSelectors).map(String).filter(Boolean),
-        stayOriginalSelectors: asArray(rule.stayOriginalSelectors).map(String).filter(Boolean)
-      }))
-      .filter((rule) => rule.matches.length && rule.selectors.length);
+      .map(normalizeUserRule)
+      .filter((rule) => rule.matches.length && rule.includeSelectors.length);
+  }
+
+  function normalizeUserRule(rule) {
+    const includeSelectors = normalizeSelectorList(
+      rule.includeSelectors && asArray(rule.includeSelectors).length
+        ? rule.includeSelectors
+        : rule.selectors
+    );
+    return {
+      ...rule,
+      id: String(rule.id || "custom").trim() || "custom",
+      name: String(rule.name || "").trim(),
+      matches: asArray(rule.matches).map(String).map((item) => item.trim()).filter(Boolean),
+      includeSelectors,
+      selectors: includeSelectors.slice(),
+      excludeSelectors: normalizeSelectorList(rule.excludeSelectors),
+      stayOriginalSelectors: normalizeSelectorList(rule.stayOriginalSelectors),
+      dynamicMode: normalizeDynamicMode(rule.dynamicMode),
+      minTextLength: normalizeOptionalInteger(rule.minTextLength, 0, 500),
+      forceTranslateWhenMixedLanguage: Boolean(rule.forceTranslateWhenMixedLanguage),
+      translateShadowDom: Boolean(rule.translateShadowDom)
+    };
+  }
+
+  function normalizeSelectorList(value) {
+    return Array.from(
+      new Set(asArray(value).map((selector) => String(selector || "").trim()).filter(Boolean))
+    );
+  }
+
+  function normalizeDynamicMode(value) {
+    if (value === true) return "eager";
+    if (value === false) return "off";
+    const normalized = String(value || "").trim().toLowerCase();
+    if (["auto", "off", "eager"].includes(normalized)) return normalized;
+    return "auto";
+  }
+
+  function normalizeOptionalInteger(value, min, max) {
+    if (value === undefined || value === null || value === "") return 0;
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Math.min(max, Math.max(min, Math.round(number)));
   }
 
   function normalizeTargetLanguage(value) {
@@ -1538,6 +1574,37 @@
     return false;
   }
 
+  function shouldTranslateTextBlock(text, settings, context = {}) {
+    const normalizedSettings = normalizeSettings(settings);
+    const normalized = normalizeText(text);
+    if (!isTranslatableText(normalized)) return false;
+    const minTextLength = Number(context.minTextLength || (context.rule && context.rule.minTextLength) || 0);
+    if (minTextLength > 0 && normalized.length < minTextLength) return false;
+    if (hasSensitiveText(normalized, normalizedSettings)) return false;
+
+    const target = context.targetLanguage || normalizedSettings.targetLanguage;
+    const url = context.url || context.urlLike || "";
+    const source = detectTextLanguage(normalized);
+    if (source && normalizedSettings.neverTranslateLanguages.includes(source)) return false;
+    if (
+      source &&
+      normalizedSettings.alwaysTranslateLanguages.length &&
+      !normalizedSettings.alwaysTranslateLanguages.includes(source)
+    ) {
+      return false;
+    }
+    const forceMixed =
+      Boolean(context.forceTranslateWhenMixedLanguage) ||
+      Boolean(context.rule && context.rule.forceTranslateWhenMixedLanguage);
+    if (
+      forceMixed &&
+      hasTranslatableForeignContent(normalized, target, { conservative: true })
+    ) {
+      return true;
+    }
+    return !shouldSkipByLanguage(normalized, target, normalizedSettings, url);
+  }
+
   function shouldPreferTranslatingMixedLanguageText(text, targetLanguage, settings, urlLike) {
     const normalizedSettings = normalizeSettings(settings);
     const conservative = isAlwaysTranslateUrl(urlLike, normalizedSettings);
@@ -1616,7 +1683,7 @@
     };
   }
 
-  function validateTranslationRequest({ text, url, settings } = {}) {
+  function validateTranslationRequest({ text, url, settings, forceTranslateWhenMixedLanguage } = {}) {
     const normalizedSettings = normalizeSettings(settings);
     const normalizedText = normalizeText(text);
     if (!isTranslatableText(normalizedText)) {
@@ -1628,7 +1695,13 @@
     if (hasSensitiveText(normalizedText, normalizedSettings)) {
       throw new Error("检测到敏感文本，已阻止翻译");
     }
-    if (shouldSkipByLanguage(normalizedText, normalizedSettings.targetLanguage, normalizedSettings, url)) {
+    if (
+      !shouldTranslateTextBlock(normalizedText, normalizedSettings, {
+        url,
+        targetLanguage: normalizedSettings.targetLanguage,
+        forceTranslateWhenMixedLanguage
+      })
+    ) {
       throw new Error("文本与目标语言一致，无需翻译");
     }
     assertProviderAvailable(normalizedSettings.provider, normalizedSettings);
@@ -1670,12 +1743,12 @@
     const customRule = normalizeUserRules(userRules).find((candidate) => matchesSiteRule(candidate, urlLike));
     if (customRule) return mergeRule(baseRuleFor(customRule.id), customRule);
     const rule = SITE_RULES.find((candidate) => matchesSiteRule(candidate, urlLike));
-    return rule || {
+    return materializeRule(rule || {
       id: "default",
       matches: ["*"],
       selectors: DEFAULT_SELECTORS,
       excludeSelectors: DEFAULT_EXCLUDE_SELECTORS
-    };
+    });
   }
 
   function baseRuleFor(id) {
@@ -1684,15 +1757,16 @@
 
   function mergeRule(baseRule, customRule) {
     if (!baseRule) {
-      return {
+      return materializeRule({
         ...customRule,
         excludeSelectors: [...DEFAULT_EXCLUDE_SELECTORS, ...customRule.excludeSelectors]
-      };
+      });
     }
-    return {
+    return materializeRule({
       ...baseRule,
       ...customRule,
-      selectors: customRule.selectors.length ? customRule.selectors : baseRule.selectors,
+      selectors: customRule.includeSelectors.length ? customRule.includeSelectors : baseRule.selectors,
+      includeSelectors: customRule.includeSelectors.length ? customRule.includeSelectors : baseRule.selectors,
       excludeSelectors: [
         ...asArray(baseRule.excludeSelectors),
         ...asArray(customRule.excludeSelectors)
@@ -1701,6 +1775,27 @@
         ...asArray(baseRule.stayOriginalSelectors),
         ...asArray(customRule.stayOriginalSelectors)
       ]
+    });
+  }
+
+  function materializeRule(rule) {
+    const includeSelectors = normalizeSelectorList(
+      rule.includeSelectors && asArray(rule.includeSelectors).length
+        ? rule.includeSelectors
+        : rule.selectors
+    );
+    return {
+      ...rule,
+      name: String(rule.name || "").trim(),
+      matches: asArray(rule.matches).map(String).filter(Boolean),
+      includeSelectors,
+      selectors: includeSelectors.slice(),
+      excludeSelectors: normalizeSelectorList(rule.excludeSelectors),
+      stayOriginalSelectors: normalizeSelectorList(rule.stayOriginalSelectors),
+      dynamicMode: normalizeDynamicMode(rule.dynamicMode),
+      minTextLength: normalizeOptionalInteger(rule.minTextLength, 0, 500),
+      forceTranslateWhenMixedLanguage: Boolean(rule.forceTranslateWhenMixedLanguage),
+      translateShadowDom: Boolean(rule.translateShadowDom)
     };
   }
 
@@ -1847,6 +1942,7 @@
     getSameLanguageBackground,
     detectTextLanguage,
     hasSensitiveText,
+    shouldTranslateTextBlock,
     shouldSkipByLanguage,
     hasTranslatableForeignContent,
     shouldPreferTranslatingMixedLanguageText,

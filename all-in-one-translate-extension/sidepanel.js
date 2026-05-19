@@ -3,6 +3,8 @@ const SETTINGS_KEY = "translySettings";
 const SECRET_KEY = "translyCustomApiKey";
 const GLOSSARY_KEY = "translyCustomGlossaryTerms";
 const UI_LANGUAGE = "zh-CN";
+const MAX_DOCUMENT_FILE_BYTES = 1024 * 1024;
+const MAX_DOCUMENT_SEGMENTS = 240;
 
 const controls = {
   pageDomain: document.querySelector("#pageDomain"),
@@ -33,6 +35,14 @@ const controls = {
   textInput: document.querySelector("#textInput"),
   textOutput: document.querySelector("#textOutput"),
   translateText: document.querySelector("#translateText"),
+  fileDropZone: document.querySelector("#fileDropZone"),
+  documentFileInput: document.querySelector("#documentFileInput"),
+  fileMeta: document.querySelector("#fileMeta"),
+  fileSourcePreview: document.querySelector("#fileSourcePreview"),
+  fileTranslationPreview: document.querySelector("#fileTranslationPreview"),
+  translateFile: document.querySelector("#translateFile"),
+  downloadFileTranslation: document.querySelector("#downloadFileTranslation"),
+  clearFileTranslation: document.querySelector("#clearFileTranslation"),
   saveSettings: document.querySelector("#saveSettings"),
   openOptions: document.querySelector("#openOptions"),
   translatePage: document.querySelector("#translatePage"),
@@ -44,6 +54,8 @@ const controls = {
 
 let activeTab = null;
 let currentSettings = core.createDefaultSettings();
+let selectedDocument = null;
+let translatedDocument = null;
 
 initSidePanel();
 
@@ -107,6 +119,16 @@ function bindActions() {
   controls.translateToEnd.addEventListener("click", () => sendToActiveTab("TRANSLY_TRANSLATE_TO_END"));
   controls.clearTranslations.addEventListener("click", () => sendToActiveTab("TRANSLY_CLEAR"));
   controls.translateText.addEventListener("click", translateFreeText);
+  controls.documentFileInput.addEventListener("change", () => {
+    const [file] = Array.from(controls.documentFileInput.files || []);
+    if (file) handleDocumentFile(file);
+  });
+  controls.fileDropZone.addEventListener("dragover", handleFileDragOver);
+  controls.fileDropZone.addEventListener("dragleave", handleFileDragLeave);
+  controls.fileDropZone.addEventListener("drop", handleFileDrop);
+  controls.translateFile.addEventListener("click", translateSelectedDocument);
+  controls.downloadFileTranslation.addEventListener("click", downloadTranslatedDocument);
+  controls.clearFileTranslation.addEventListener("click", clearSelectedDocument);
   controls.openOptions.addEventListener("click", () => chrome.runtime.openOptionsPage());
   controls.provider.addEventListener("change", () => updateProviderFields(controls.provider.value));
 }
@@ -318,6 +340,360 @@ async function translateFreeText() {
     response && response.ok ? response.text : (response && response.error) || "翻译失败";
 }
 
+function handleFileDragOver(event) {
+  event.preventDefault();
+  controls.fileDropZone.classList.add("is-dragging");
+}
+
+function handleFileDragLeave() {
+  controls.fileDropZone.classList.remove("is-dragging");
+}
+
+function handleFileDrop(event) {
+  event.preventDefault();
+  controls.fileDropZone.classList.remove("is-dragging");
+  const [file] = Array.from((event.dataTransfer && event.dataTransfer.files) || []);
+  if (file) handleDocumentFile(file);
+}
+
+async function handleDocumentFile(file) {
+  try {
+    if (file.size > MAX_DOCUMENT_FILE_BYTES) {
+      throw new Error("文件超过 1MB，请先拆分后再翻译");
+    }
+    const rawText = await readFileAsText(file);
+    selectedDocument = parseDocumentForTranslation(file.name, rawText);
+    if (selectedDocument.segments.length > MAX_DOCUMENT_SEGMENTS) {
+      throw new Error(`文件分段过多（${selectedDocument.segments.length} 段），请拆分到 ${MAX_DOCUMENT_SEGMENTS} 段以内`);
+    }
+    translatedDocument = null;
+    controls.fileSourcePreview.value = buildSourcePreview(selectedDocument);
+    controls.fileTranslationPreview.value = "";
+    controls.downloadFileTranslation.disabled = true;
+    controls.fileMeta.innerHTML = buildFileMeta(selectedDocument);
+    setStatus("文件已读取");
+  } catch (error) {
+    selectedDocument = null;
+    translatedDocument = null;
+    controls.fileMeta.textContent = error.message || String(error);
+    controls.fileSourcePreview.value = "";
+    controls.fileTranslationPreview.value = "";
+    controls.downloadFileTranslation.disabled = true;
+    setStatus("文件读取失败");
+  }
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error || new Error("文件读取失败")));
+    reader.readAsText(file, "utf-8");
+  });
+}
+
+async function translateSelectedDocument() {
+  if (!selectedDocument) {
+    setStatus("请先选择 .txt/.md/.srt/.vtt 文件");
+    return;
+  }
+  const settings = (await persistSettings()) || currentSettings;
+  const sourceSegments = selectedDocument.segments.filter((segment) =>
+    core.shouldTranslateTextBlock(segment.text, settings, {
+      targetLanguage: settings.targetLanguage
+    })
+  );
+  if (!sourceSegments.length) {
+    setStatus("文件中没有可翻译文本");
+    return;
+  }
+
+  controls.translateFile.disabled = true;
+  controls.downloadFileTranslation.disabled = true;
+  controls.fileTranslationPreview.value = "翻译中...";
+  try {
+    const translations = await translateDocumentSegments(sourceSegments, settings, (done, total) => {
+      setStatus(`文件翻译中 ${done}/${total}`);
+    });
+    translatedDocument = buildTranslatedDocument(selectedDocument, translations);
+    controls.fileTranslationPreview.value = translatedDocument.preview;
+    controls.downloadFileTranslation.disabled = false;
+    controls.downloadFileTranslation.textContent = translatedDocument.isSubtitle ? "下载双语字幕" : "下载译文";
+    setStatus(translations.warning || `文件翻译完成：${translations.length} 段`);
+  } catch (error) {
+    controls.fileTranslationPreview.value = error.message || String(error);
+    setStatus("文件翻译失败");
+  } finally {
+    controls.translateFile.disabled = false;
+  }
+}
+
+async function translateDocumentSegments(segments, settings, onProgress) {
+  const translations = [];
+  const failures = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "TRANSLY_TRANSLATE",
+        text: segment.text,
+        settings: publicSettings(settings)
+      });
+      if (!response || response.ok === false) {
+        throw new Error((response && response.error) || "翻译失败");
+      }
+      translations.push({ id: segment.id, text: response.text || "" });
+    } catch (error) {
+      failures.push({ id: segment.id, error: error.message || String(error) });
+    }
+    if (onProgress) onProgress(index + 1, segments.length);
+  }
+  if (failures.length && failures.length >= segments.length) {
+    throw new Error(`所有分段翻译失败：${failures[0].error}`);
+  }
+  if (failures.length) {
+    translations.warning = `${failures.length} 段翻译失败，已保留原文`;
+  }
+  return translations;
+}
+
+function downloadTranslatedDocument() {
+  if (!translatedDocument) return;
+  const blob = new Blob([translatedDocument.content], { type: translatedDocument.mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = translatedDocument.filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function clearSelectedDocument() {
+  selectedDocument = null;
+  translatedDocument = null;
+  controls.documentFileInput.value = "";
+  controls.fileMeta.textContent = "尚未选择文件";
+  controls.fileSourcePreview.value = "";
+  controls.fileTranslationPreview.value = "";
+  controls.downloadFileTranslation.disabled = true;
+  controls.downloadFileTranslation.textContent = "下载译文";
+  setStatus("已清空文件");
+}
+
+function parseDocumentForTranslation(filename, rawText) {
+  const extension = getFileExtension(filename);
+  const text = stripUtf8Bom(String(rawText || ""));
+  if (!["txt", "md", "srt", "vtt"].includes(extension)) {
+    throw new Error("仅支持 .txt、.md、.srt、.vtt 文件");
+  }
+  if (!text.trim()) {
+    throw new Error("文件内容为空");
+  }
+  if (extension === "srt" || extension === "vtt") {
+    const cues = extension === "srt" ? parseSrt(text) : parseVtt(text);
+    if (!cues.length) throw new Error("未识别到字幕时间轴");
+    return {
+      filename,
+      extension,
+      kind: "subtitle",
+      format: extension,
+      rawText: text,
+      cues,
+      segments: cues.map((cue, index) => ({ id: cue.id || String(index + 1), text: cue.text }))
+    };
+  }
+  return {
+    filename,
+    extension,
+    kind: "text",
+    rawText: text,
+    segments: segmentPlainText(text).map((segment, index) => ({ id: String(index + 1), text: segment }))
+  };
+}
+
+function parseSrt(text) {
+  return splitSubtitleBlocks(text).map((block, index) => {
+    const lines = block.split(/\r?\n/);
+    const identifier = /^\d+$/.test(lines[0] || "") ? lines.shift() : String(index + 1);
+    const timingLineIndex = lines.findIndex((line) => /-->/u.test(line));
+    if (timingLineIndex < 0) return null;
+    const timing = lines[timingLineIndex].trim();
+    const textLines = lines.slice(timingLineIndex + 1).filter((line) => line.trim());
+    if (!textLines.length) return null;
+    return {
+      id: identifier,
+      start: timing.split(/-->/u)[0].trim(),
+      end: timing.split(/-->/u).slice(1).join("-->").trim(),
+      timing,
+      text: textLines.join("\n")
+    };
+  }).filter(Boolean);
+}
+
+function parseVtt(text) {
+  return splitSubtitleBlocks(text)
+    .filter((block) => !/^WEBVTT(?:\s|$)/iu.test(block.trim()))
+    .map((block, index) => {
+      const lines = block.split(/\r?\n/).filter((line) => !/^(NOTE|STYLE|REGION)(?:\s|$)/u.test(line.trim()));
+      if (!lines.length) return null;
+      let identifier = "";
+      let timingLine = lines[0].trim();
+      let textStart = 1;
+      if (!/-->/u.test(timingLine) && lines[1] && /-->/u.test(lines[1])) {
+        identifier = timingLine;
+        timingLine = lines[1].trim();
+        textStart = 2;
+      }
+      if (!/-->/u.test(timingLine)) return null;
+      const textLines = lines.slice(textStart).filter((line) => line.trim());
+      if (!textLines.length) return null;
+      return {
+        id: identifier || String(index + 1),
+        identifier,
+        timing: timingLine,
+        text: textLines.join("\n")
+      };
+    })
+    .filter(Boolean);
+}
+
+function splitSubtitleBlocks(text) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/u)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
+function segmentPlainText(text, maxLength = 1200) {
+  const normalized = String(text || "").replace(/\r\n/g, "\n").trim();
+  if (!normalized) return [];
+  const paragraphs = normalized.split(/\n{2,}/u).map((paragraph) => paragraph.trim()).filter(Boolean);
+  const segments = [];
+  for (const paragraph of paragraphs) {
+    if (paragraph.length <= maxLength) {
+      segments.push(paragraph);
+      continue;
+    }
+    splitLongText(paragraph, maxLength).forEach((chunk) => segments.push(chunk));
+  }
+  return segments;
+}
+
+function splitLongText(text, maxLength) {
+  const chunks = [];
+  let remaining = String(text || "").trim();
+  while (remaining) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+    const boundary = findSegmentBoundary(remaining, maxLength);
+    chunks.push(remaining.slice(0, boundary).trim());
+    remaining = remaining.slice(boundary).trimStart();
+  }
+  return chunks.filter(Boolean);
+}
+
+function findSegmentBoundary(text, maxLength) {
+  const windowText = text.slice(0, maxLength);
+  const minimum = Math.floor(maxLength * 0.55);
+  const patterns = [/\n/u, /[.!?。！？]\s+/gu, /[,;，；]\s+/gu, /\s+/gu];
+  for (const pattern of patterns) {
+    let match;
+    let boundary = -1;
+    while ((match = pattern.exec(windowText))) {
+      const candidate = match.index + match[0].length;
+      if (candidate >= minimum) boundary = candidate;
+    }
+    if (boundary >= minimum) return boundary;
+  }
+  return maxLength;
+}
+
+function buildTranslatedDocument(documentData, translations) {
+  const translationMap = new Map(translations.map((entry) => [entry.id, entry.text]));
+  if (documentData.kind === "subtitle") {
+    const content = serializeBilingualSubtitle(documentData.cues, translationMap, documentData.format);
+    return {
+      isSubtitle: true,
+      content,
+      preview: content,
+      filename: buildDownloadFilename(documentData.filename, `.bilingual.${documentData.format}`),
+      mimeType: documentData.format === "vtt" ? "text/vtt;charset=utf-8" : "application/x-subrip;charset=utf-8"
+    };
+  }
+  const content = documentData.segments.map((segment) => translationMap.get(segment.id) || segment.text).join("\n\n");
+  const extension = documentData.extension === "md" ? ".md" : ".txt";
+  return {
+    isSubtitle: false,
+    content,
+    preview: content,
+    filename: buildDownloadFilename(documentData.filename, `.translated${extension}`),
+    mimeType: documentData.extension === "md" ? "text/markdown;charset=utf-8" : "text/plain;charset=utf-8"
+  };
+}
+
+function serializeBilingualSubtitle(cues, translationMap, format) {
+  const blocks = cues.map((cue, index) => {
+    const translated = translationMap instanceof Map
+      ? translationMap.get(cue.id) || ""
+      : translationMap[cue.id] || "";
+    const lines = [];
+    if (format === "srt") {
+      lines.push(String(index + 1));
+    } else if (cue.identifier) {
+      lines.push(cue.identifier);
+    }
+    lines.push(cue.timing);
+    lines.push(...cue.text.split(/\n/u));
+    if (translated) lines.push(...String(translated).split(/\n/u));
+    return lines.join("\n");
+  });
+  return `${format === "vtt" ? "WEBVTT\n\n" : ""}${blocks.join("\n\n")}\n`;
+}
+
+function buildSourcePreview(documentData) {
+  if (documentData.kind === "subtitle") {
+    return documentData.cues
+      .slice(0, 20)
+      .map((cue, index) => `${index + 1}\n${cue.timing}\n${cue.text}`)
+      .join("\n\n");
+  }
+  return documentData.rawText.slice(0, 12000);
+}
+
+function buildFileMeta(documentData) {
+  const label = documentData.kind === "subtitle" ? "字幕" : "文本";
+  return [
+    `<strong>${escapeHtml(documentData.filename)}</strong>`,
+    `<span>${label}文件，${documentData.segments.length} 个待翻译分段</span>`,
+    documentData.kind === "subtitle" ? "<span>下载将保留时间轴并输出双语字幕。</span>" : ""
+  ].filter(Boolean).join("");
+}
+
+function buildDownloadFilename(filename, suffix) {
+  const sourceName = String(filename || "transly-output").split(/[\\/]/u).pop() || "transly-output";
+  const cleaned = sourceName
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, 120);
+  const base = (cleaned.replace(/\.[^.]+$/u, "").replace(/^\.+$/u, "") || "transly-output");
+  return `${base}${suffix}`;
+}
+
+function getFileExtension(filename) {
+  const match = String(filename || "").toLowerCase().match(/\.([a-z0-9]+)$/u);
+  return match ? match[1] : "";
+}
+
+function stripUtf8Bom(text) {
+  return String(text || "").replace(/^\uFEFF/u, "");
+}
+
 function safeHostname(url) {
   try {
     return new URL(url).hostname;
@@ -345,3 +721,14 @@ function debounce(fn, delay) {
     timer = window.setTimeout(() => fn(), delay);
   };
 }
+
+window.TranslyDocumentTools = {
+  parseDocumentForTranslation,
+  parseSrt,
+  parseVtt,
+  segmentPlainText,
+  serializeBilingualSubtitle,
+  buildTranslatedDocument,
+  buildDownloadFilename,
+  translateDocumentSegments
+};

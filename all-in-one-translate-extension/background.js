@@ -199,7 +199,8 @@ async function translateMessage(message, sender) {
   const validation = core.validateTranslationRequest({
     text,
     url,
-    settings: { ...settings, provider: validationProvider }
+    settings: { ...settings, provider: validationProvider },
+    forceTranslateWhenMixedLanguage: Boolean(message.forceTranslateWhenMixedLanguage)
   });
   const attempts = [];
 

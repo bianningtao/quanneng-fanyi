@@ -246,6 +246,84 @@ textarea {
   min-height: 150px;
 }
 
+.file-translator-card {
+  align-content: start;
+}
+
+.file-drop-zone {
+  min-height: 138px;
+  padding: 18px;
+  place-items: center;
+  text-align: center;
+  color: var(--soft);
+  background:
+    linear-gradient(180deg, rgba(255, 79, 147, 0.08), rgba(32, 39, 55, 0.3)),
+    #0b0f17;
+  border: 1px dashed rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.file-drop-zone.is-dragging {
+  border-color: rgba(255, 79, 147, 0.8);
+  box-shadow: 0 0 0 3px rgba(255, 79, 147, 0.14);
+}
+
+.file-drop-zone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-drop-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: #ffffff;
+  background: var(--accent);
+  border-radius: 999px;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.file-meta {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  color: var(--muted);
+  background: #0b0f17;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.file-meta strong {
+  font-size: 12px;
+}
+
+.preview-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.preview-grid textarea {
+  min-height: 170px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.file-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.file-action-row button {
+  min-width: 0;
+}
+
 .switch-row {
   display: flex;
   align-items: center;
@@ -469,5 +547,9 @@ output {
 
   .language-swap {
     display: none;
+  }
+
+  .file-action-row {
+    grid-template-columns: 1fr;
   }
 }
