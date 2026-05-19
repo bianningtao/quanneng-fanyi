@@ -11,7 +11,7 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_title": "Transly Immersive",
+    "default_title": "全能翻译",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

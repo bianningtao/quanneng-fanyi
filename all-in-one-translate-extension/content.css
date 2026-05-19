@@ -79,12 +79,12 @@
   border: 0;
   border-radius: 999px;
   color: #ffffff;
-  background: rgb(146, 71, 130);
+  background: rgb(24, 27, 33);
   cursor: pointer;
   box-shadow:
-    0 0 0 3px rgba(146, 71, 130, 0.12),
+    0 0 0 3px rgba(9, 11, 16, 0.16),
     0 0 0 1px rgba(255, 255, 255, 0.28),
-    0 10px 24px rgba(92, 50, 92, 0.24);
+    0 10px 24px rgba(0, 0, 0, 0.28);
   opacity: 1;
   transition:
     background 0.16s ease,
@@ -227,7 +227,7 @@
 .transly-panel-tool:focus-visible,
 .transly-panel-close:hover,
 .transly-panel-close:focus-visible {
-  background: rgb(124, 54, 112);
+  background: rgb(10, 12, 18);
   outline: 0;
 }
 
@@ -609,29 +609,42 @@
 .transly-subtitle-translation {
   box-sizing: border-box !important;
   display: block !important;
-  margin-top: 0.16em !important;
-  color: #ffd2e5 !important;
-  font: inherit !important;
+  width: fit-content !important;
+  max-width: min(92vw, 100%) !important;
+  margin: 0.18em auto 0 !important;
+  border-radius: 6px !important;
+  color: var(--transly-subtitle-color, #ffd2e5) !important;
+  background: transparent !important;
+  font-family: inherit !important;
+  font-size: var(--transly-subtitle-font-size, clamp(20px, 2.3vw, 33px)) !important;
   font-weight: 700 !important;
   letter-spacing: 0 !important;
   line-height: 1.22 !important;
+  padding: 0 0.16em !important;
   text-align: center !important;
-  text-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.92),
-    0 0 10px rgba(0, 0, 0, 0.84) !important;
+  text-shadow: none !important;
   white-space: normal !important;
 }
 
+.transly-subtitle-translation.has-background {
+  background: var(--transly-subtitle-background, rgba(0, 0, 0, 0.52)) !important;
+  padding: 0.08em 0.42em !important;
+}
+
+.transly-subtitle-translation.has-shadow {
+  text-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.92),
+    0 0 10px rgba(0, 0, 0, 0.84) !important;
+}
+
 .transly-subtitle-source-hidden {
+  display: none !important;
   color: transparent !important;
   text-shadow: none !important;
 }
 
 .transly-subtitle-source-hidden > .transly-subtitle-translation {
-  color: #ffffff !important;
-  text-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.92),
-    0 0 10px rgba(0, 0, 0, 0.84) !important;
+  color: var(--transly-subtitle-color, #ffffff) !important;
 }
 
 .transly-translation-wrapper {

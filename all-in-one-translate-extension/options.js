@@ -59,6 +59,7 @@ const controls = {
   customApiKey: document.querySelector("#customApiKey"),
   customModel: document.querySelector("#customModel"),
   fallbackToDemo: document.querySelector("#fallbackToDemo"),
+  fallbackOrderStatus: document.querySelector("#fallbackOrderStatus"),
   tripleSpaceEnabled: document.querySelector("#tripleSpaceEnabled"),
   selectionTranslateEnabled: document.querySelector("#selectionTranslateEnabled"),
   hoverTranslateEnabled: document.querySelector("#hoverTranslateEnabled"),
@@ -67,6 +68,11 @@ const controls = {
   videoSubtitleGenericEnabled: document.querySelector("#videoSubtitleGenericEnabled"),
   videoSubtitleMode: document.querySelector("#videoSubtitleMode"),
   videoSubtitleProvider: document.querySelector("#videoSubtitleProvider"),
+  videoSubtitleFontScale: document.querySelector("#videoSubtitleFontScale"),
+  videoSubtitleTextColor: document.querySelector("#videoSubtitleTextColor"),
+  videoSubtitleBackgroundColor: document.querySelector("#videoSubtitleBackgroundColor"),
+  videoSubtitleTextShadow: document.querySelector("#videoSubtitleTextShadow"),
+  subtitlePreview: document.querySelector("#subtitlePreview"),
   glossaryEnabled: document.querySelector("#glossaryEnabled"),
   glossaryPresetGrid: document.querySelector("#glossaryPresetGrid"),
   glossaryCustomTerms: document.querySelector("#glossaryCustomTerms"),
@@ -141,10 +147,46 @@ function showSection(sectionName) {
 function bindForm() {
   Object.entries(controls).forEach(([name, control]) => {
     if (!control || isActionControl(name)) return;
-    control.addEventListener("change", () => persistFromForm());
+    control.addEventListener("change", () => {
+      if (control.type === "color") {
+        control.dataset.colorEmpty = "false";
+        updateColorControl(control);
+      }
+      if (name === "provider") {
+        const selectedProvider = control.value;
+        selectEngine(selectedProvider);
+        controls.provider.value = selectedProvider;
+        promoteEngineInOrder(selectedProvider);
+      }
+      if (name === "providerFallbackOrder") {
+        syncPreferredProviderFromFallbackOrder();
+      }
+      updateFallbackOrderFeedback();
+      persistFromForm();
+    });
     control.addEventListener("input", () => {
+      if (control.type === "color") {
+        control.dataset.colorEmpty = "false";
+        updateColorControl(control);
+      }
       updatePreview();
+      if (name === "providerFallbackOrder") updateFallbackOrderFeedback();
       scheduleSave();
+    });
+  });
+
+  document.querySelectorAll("[data-color-clear], [data-color-reset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const controlId = button.getAttribute("data-color-clear") || button.getAttribute("data-color-reset");
+      const control = document.querySelector(`#${controlId}`);
+      if (!control) return;
+      if (button.hasAttribute("data-color-clear")) {
+        setColorControl(control, "");
+      } else {
+        setColorControl(control, button.getAttribute("data-color-value") || control.dataset.defaultColor || "#000000");
+      }
+      updatePreview();
+      persistFromForm();
     });
   });
 
@@ -156,6 +198,7 @@ function bindForm() {
         return;
       }
       controls.provider.value = provider;
+      promoteEngineInOrder(provider);
       updateServiceTiles(provider);
       updateProviderFields(provider);
       persistFromForm();
@@ -193,12 +236,22 @@ function bindForm() {
 
   controls.saveSettings.addEventListener("click", () => persistFromForm(true));
   controls.provider.addEventListener("change", () => {
-    selectEngine(controls.provider.value);
-    updateProviderFields(controls.provider.value);
+    const selectedProvider = controls.provider.value;
+    selectEngine(selectedProvider);
+    controls.provider.value = selectedProvider;
+    updateProviderFields(selectedProvider);
+    updateServiceTiles(selectedProvider);
+    updateFallbackOrderFeedback();
   });
   controls.addCustomEngine.addEventListener("click", addCustomEngine);
   controls.compareEngines.addEventListener("click", compareEngines);
   controls.setDefaultEngine.addEventListener("click", () => {
+    const engine = core.resolveServiceEngine(activeEngineId, currentSettings);
+    if (!engine || !isEngineRunnable(engine)) {
+      const reason = engineReadiness(engine).label;
+      controls.serviceStatus.textContent = `该服务暂不能设为当前首选：${reason}`;
+      return;
+    }
     controls.provider.value = activeEngineId;
     promoteEngineInOrder(activeEngineId);
     persistFromForm(true);
@@ -228,7 +281,9 @@ function isActionControl(name) {
     "importSettings",
     "saveStatus",
     "serviceStatus",
+    "fallbackOrderStatus",
     "stylePreview",
+    "subtitlePreview",
     "stylePresetGrid",
     "sectionTitle",
     "settingsJson"
@@ -243,12 +298,12 @@ async function loadSettings() {
     storageGet("local", ENGINE_SECRET_KEY)
   ]);
   const engineSource = (stored && stored.serviceEngines) || [];
-  return normalizeOptionSettings({
+  return reconcileServiceSettings(normalizeOptionSettings({
     ...(stored || {}),
     customApiKey: secret || "",
     serviceEngines: mergeEngineSecrets(engineSource, engineSecrets || {}),
     customGlossaryTerms: customGlossaryTerms || (stored && stored.customGlossaryTerms) || []
-  });
+  }));
 }
 
 function applySettings(settings) {
@@ -265,8 +320,8 @@ function applySettings(settings) {
   controls.displayMode.value = settings.displayMode;
   controls.translationTheme.value = settings.translationTheme;
   controls.sameLanguageBackground.value = settings.sameLanguageBackground;
-  controls.translationTextColor.value = settings.translationTextColor;
-  controls.translationBackgroundColor.value = settings.translationBackgroundColor;
+  setColorControl(controls.translationTextColor, settings.translationTextColor);
+  setColorControl(controls.translationBackgroundColor, settings.translationBackgroundColor);
   controls.translationFontScale.value = settings.translationFontScale;
   controls.translationMaxWidth.value = settings.translationMaxWidth || "";
   controls.translationFontFamily.value = settings.translationFontFamily;
@@ -287,7 +342,12 @@ function applySettings(settings) {
   controls.videoSubtitleYouTubeEnabled.checked = settings.videoSubtitleYouTubeEnabled;
   controls.videoSubtitleGenericEnabled.checked = settings.videoSubtitleGenericEnabled;
   controls.videoSubtitleMode.value = settings.videoSubtitleMode;
+  renderSubtitleProviderOptions(settings);
   controls.videoSubtitleProvider.value = settings.videoSubtitleProvider;
+  controls.videoSubtitleFontScale.value = settings.videoSubtitleFontScale;
+  setColorControl(controls.videoSubtitleTextColor, settings.videoSubtitleTextColor);
+  setColorControl(controls.videoSubtitleBackgroundColor, settings.videoSubtitleBackgroundColor);
+  controls.videoSubtitleTextShadow.checked = settings.videoSubtitleTextShadow;
   controls.glossaryEnabled.checked = settings.glossaryEnabled;
   controls.glossaryCustomTerms.value = formatGlossaryTerms(settings.customGlossaryTerms);
   renderGlossaryPresetGrid(settings);
@@ -306,6 +366,7 @@ function applySettings(settings) {
   selectEngine(settings.provider);
   updateServiceTiles(settings.provider);
   updateProviderFields(settings.provider);
+  updateFallbackOrderFeedback(settings);
 }
 
 async function persistFromForm(forceStatus) {
@@ -313,6 +374,7 @@ async function persistFromForm(forceStatus) {
   try {
     const settings = collectSettings();
     currentSettings = settings;
+    reflectServiceControls(settings);
     await Promise.all([
       storageSet("sync", SETTINGS_KEY, publicSettings(settings)),
       storageSet("local", SECRET_KEY, settings.customApiKey),
@@ -321,6 +383,7 @@ async function persistFromForm(forceStatus) {
     ]);
     updateServiceTiles(settings.provider);
     renderEngineList(settings);
+    updateFallbackOrderFeedback(settings);
     notifySettingsChanged(runtimeSettings(settings));
     if (forceStatus) setStatus("已保存");
     else setStatus("已自动保存");
@@ -339,7 +402,7 @@ function scheduleSave() {
 function collectSettings() {
   commitActiveEngineForm();
   const rules = parseUserRules();
-  return normalizeOptionSettings({
+  return reconcileServiceSettings(normalizeOptionSettings({
     ...currentSettings,
     enabled: controls.enabled.checked,
     autoTranslate: controls.autoTranslate.checked,
@@ -354,8 +417,8 @@ function collectSettings() {
     displayMode: controls.displayMode.value,
     translationTheme: controls.translationTheme.value,
     sameLanguageBackground: controls.sameLanguageBackground.value,
-    translationTextColor: controls.translationTextColor.value,
-    translationBackgroundColor: controls.translationBackgroundColor.value,
+    translationTextColor: readColorControl(controls.translationTextColor),
+    translationBackgroundColor: readColorControl(controls.translationBackgroundColor),
     translationFontScale: controls.translationFontScale.value,
     translationMaxWidth: controls.translationMaxWidth.value,
     translationFontFamily: controls.translationFontFamily.value,
@@ -378,6 +441,10 @@ function collectSettings() {
     videoSubtitleGenericEnabled: controls.videoSubtitleGenericEnabled.checked,
     videoSubtitleMode: controls.videoSubtitleMode.value,
     videoSubtitleProvider: controls.videoSubtitleProvider.value,
+    videoSubtitleFontScale: controls.videoSubtitleFontScale.value,
+    videoSubtitleTextColor: readColorControl(controls.videoSubtitleTextColor),
+    videoSubtitleBackgroundColor: readColorControl(controls.videoSubtitleBackgroundColor),
+    videoSubtitleTextShadow: controls.videoSubtitleTextShadow.checked,
     glossaryEnabled: controls.glossaryEnabled.checked,
     enabledGlossaryIds: selectedGlossaryIds(),
     customGlossaryTerms: core.normalizeGlossaryTerms(controls.glossaryCustomTerms.value),
@@ -390,11 +457,13 @@ function collectSettings() {
     floatingBallOpacity: controls.floatingBallOpacity.value,
     floatingBallBlockedDomains: parseLines(controls.floatingBallBlockedDomains.value),
     userRules: rules
-  });
+  }));
 }
 
 function normalizeOptionSettings(input) {
-  const normalized = core.normalizeSettings(input || {});
+  input = input || {};
+  const normalized = core.normalizeSettings(input);
+  const serviceEngines = core.normalizeServiceEngines(input.serviceEngines || normalized.serviceEngines || [], normalized);
   return {
     ...normalized,
     sameLanguageBackground: ["none", "soft", "slate"].includes(input.sameLanguageBackground)
@@ -404,13 +473,74 @@ function normalizeOptionSettings(input) {
     neverAutoTranslateDomains: core.normalizeDomainList(input.neverAutoTranslateDomains || []),
     neverTranslateLanguages: parseLanguageLines(input.neverTranslateLanguages || []),
     alwaysTranslateLanguages: parseLanguageLines(input.alwaysTranslateLanguages || []),
-    serviceEngines: core.normalizeServiceEngines(input.serviceEngines || normalized.serviceEngines || [], normalized),
-    providerFallbackOrder: core.normalizeProviderOrder(input.providerFallbackOrder || [], normalized.serviceEngines)
+    serviceEngines,
+    providerFallbackOrder: core.normalizeProviderOrder(input.providerFallbackOrder || normalized.providerFallbackOrder || [], serviceEngines),
+    videoSubtitleProvider: normalizeSubtitleProvider(input.videoSubtitleProvider, serviceEngines, normalized.videoSubtitleProvider)
   };
 }
 
 function createDefaultOptionSettings() {
-  return normalizeOptionSettings(core.createDefaultSettings());
+  return reconcileServiceSettings(normalizeOptionSettings(core.createDefaultSettings()));
+}
+
+function reconcileServiceSettings(settings) {
+  const serviceEngines = settings.serviceEngines || [];
+  const preferredFromOrder = firstEnabledEngineId(settings.providerFallbackOrder, settings);
+  const currentEngine = core.resolveServiceEngine(settings.provider, settings);
+  const currentProvider = currentEngine && isEngineRunnable(currentEngine) ? currentEngine.id : "";
+  const provider = preferredFromOrder || currentProvider || firstEnabledEngineId(serviceEngines.map((engine) => engine.id), settings) || settings.provider;
+  return {
+    ...settings,
+    provider,
+    providerFallbackOrder: promoteOrder(provider, settings.providerFallbackOrder),
+    videoSubtitleProvider: normalizeSubtitleProvider(settings.videoSubtitleProvider, serviceEngines, "default")
+  };
+}
+
+function firstEnabledEngineId(order, settings) {
+  const seen = new Set();
+  for (const item of order || []) {
+    const engine = core.resolveServiceEngine(item, settings);
+    if (!engine || seen.has(engine.id)) continue;
+    seen.add(engine.id);
+    if (isEngineRunnable(engine)) return engine.id;
+  }
+  return "";
+}
+
+function promoteOrder(engineId, order) {
+  const normalizedId = String(engineId || "").trim();
+  if (!normalizedId) return order || [];
+  return [normalizedId, ...(order || []).filter((item) => item !== normalizedId)];
+}
+
+function normalizeSubtitleProvider(value, serviceEngines, fallback = "default") {
+  const selected = String(value || "").trim();
+  if (selected === "default") return "default";
+  const enabledEngine = (serviceEngines || []).find((engine) =>
+    isEngineRunnable(engine) && (engine.id === selected || engine.provider === selected)
+  );
+  if (enabledEngine) return enabledEngine.id;
+  return fallback === "default" ? "default" : normalizeSubtitleProvider(fallback, serviceEngines, "default");
+}
+
+function engineReadiness(engine) {
+  if (!engine) return { ready: false, label: "未配置" };
+  if (!engine.enabled) return { ready: false, label: "已停用" };
+  if ((engine.type === "microsoft" || engine.provider === "microsoft") && !engine.apiKey) {
+    return { ready: false, label: "需 API Key" };
+  }
+  if (
+    (engine.type === "openai-compatible" || engine.type === "custom-json" || engine.provider === "custom") &&
+    !engine.endpoint
+  ) {
+    return { ready: false, label: "未配置 Endpoint" };
+  }
+  return { ready: true, label: "可用" };
+}
+
+function isEngineRunnable(engine) {
+  return engineReadiness(engine).ready;
 }
 
 function parseLines(value) {
@@ -501,10 +631,11 @@ function renderEngineList(settings = currentSettings) {
 }
 
 function renderEngineButton(engine, activeId, settings) {
-  const isDefault = settings.provider === engine.id || (settings.provider === engine.provider && engine.id === engine.provider);
-  const state = engine.enabled ? "可用" : "已隐藏";
+  const readiness = engineReadiness(engine);
+  const isDefault = readiness.ready && (settings.provider === engine.id || (settings.provider === engine.provider && engine.id === engine.provider));
+  const state = readiness.label;
   return `
-    <button class="engine-row ${engine.id === activeId ? "is-active" : ""} ${engine.enabled ? "" : "is-disabled"}" type="button" data-engine-id="${escapeHtml(engine.id)}">
+    <button class="engine-row ${engine.id === activeId ? "is-active" : ""} ${readiness.ready ? "" : "is-disabled"}" type="button" data-engine-id="${escapeHtml(engine.id)}">
       <span class="engine-icon">${escapeHtml(engineIcon(engine))}</span>
       <span>
         <strong>${escapeHtml(engine.name)}</strong>
@@ -524,24 +655,54 @@ function engineIcon(engine) {
 
 function syncProviderOptions(settings) {
   if (!controls.provider) return;
-  const existing = new Set(Array.from(controls.provider.options).map((option) => option.value));
-  (settings.serviceEngines || []).forEach((engine) => {
-    if (existing.has(engine.id)) return;
+  controls.provider.textContent = "";
+  const enabledEngines = (settings.serviceEngines || []).filter((engine) => isEngineRunnable(engine));
+  enabledEngines.forEach((engine) => {
     const option = document.createElement("option");
     option.value = engine.id;
     option.textContent = engine.name;
     controls.provider.appendChild(option);
-    existing.add(engine.id);
   });
+  if (!enabledEngines.length) {
+    const option = document.createElement("option");
+    option.value = settings.provider || "google";
+    option.textContent = "无可用翻译服务";
+    option.disabled = true;
+    controls.provider.appendChild(option);
+  }
+  controls.provider.value = settings.provider;
+}
+
+function renderSubtitleProviderOptions(settings = currentSettings) {
+  if (!controls.videoSubtitleProvider) return;
+  const selected = normalizeSubtitleProvider(controls.videoSubtitleProvider.value || settings.videoSubtitleProvider, settings.serviceEngines || []);
+  controls.videoSubtitleProvider.textContent = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "default";
+  defaultOption.textContent = "跟随网页翻译";
+  controls.videoSubtitleProvider.appendChild(defaultOption);
+  (settings.serviceEngines || []).filter((engine) => isEngineRunnable(engine)).forEach((engine) => {
+    const option = document.createElement("option");
+    option.value = engine.id;
+    option.textContent = engine.name;
+    controls.videoSubtitleProvider.appendChild(option);
+  });
+  controls.videoSubtitleProvider.value = normalizeSubtitleProvider(selected, settings.serviceEngines || []);
 }
 
 function selectEngine(engineId) {
   const engine = core.resolveServiceEngine(engineId, currentSettings) || core.resolveServiceEngine("google", currentSettings);
   if (!engine) return;
   activeEngineId = engine.id;
+  const readiness = engineReadiness(engine);
   controls.engineTitle.textContent = engine.name;
-  controls.engineMeta.textContent = currentSettings.provider === engine.id ? "当前默认" : engine.group === "custom" ? "自定义服务" : "通用服务";
+  controls.engineMeta.textContent = readiness.ready && currentSettings.provider === engine.id
+    ? "当前首选"
+    : readiness.ready
+      ? (engine.group === "custom" ? "自定义服务" : "通用服务")
+      : readiness.label;
   controls.engineDescription.textContent = engine.description || "可在翻译备份流程中使用。";
+  controls.setDefaultEngine.disabled = !readiness.ready;
   controls.engineEnabled.checked = engine.enabled;
   controls.engineName.value = engine.name;
   controls.engineType.value = engine.type;
@@ -652,8 +813,65 @@ function addCustomEngine() {
 }
 
 function promoteEngineInOrder(engineId) {
-  const order = parseLines(controls.providerFallbackOrder.value).filter((item) => item !== engineId);
-  controls.providerFallbackOrder.value = [engineId, ...order].join("\n");
+  controls.providerFallbackOrder.value = promoteOrder(engineId, parseLines(controls.providerFallbackOrder.value)).join("\n");
+}
+
+function syncPreferredProviderFromFallbackOrder() {
+  const settings = normalizeOptionSettings({
+    ...currentSettings,
+    providerFallbackOrder: parseLines(controls.providerFallbackOrder.value)
+  });
+  const preferred = firstEnabledEngineId(settings.providerFallbackOrder, settings);
+  if (preferred) {
+    selectEngine(preferred);
+    controls.provider.value = preferred;
+  }
+}
+
+function reflectServiceControls(settings) {
+  syncProviderOptions(settings);
+  controls.provider.value = settings.provider;
+  controls.providerFallbackOrder.value = settings.providerFallbackOrder.join("\n");
+  renderSubtitleProviderOptions(settings);
+  controls.videoSubtitleProvider.value = settings.videoSubtitleProvider;
+}
+
+function updateFallbackOrderFeedback(settings = currentSettings) {
+  if (!controls.fallbackOrderStatus) return;
+  const draftOrder = parseLines(controls.providerFallbackOrder.value);
+  const known = [];
+  const disabled = [];
+  const unknown = [];
+  const duplicate = [];
+  const seen = new Set();
+  draftOrder.forEach((item) => {
+    const engine = core.resolveServiceEngine(item, settings);
+    if (!engine) {
+      unknown.push(item);
+      return;
+    }
+    if (seen.has(engine.id)) {
+      duplicate.push(item);
+      return;
+    }
+    seen.add(engine.id);
+    if (isEngineRunnable(engine)) known.push(engine);
+    else disabled.push({ engine, reason: engineReadiness(engine).label });
+  });
+  const effective = known.map((engine) => engine.name).join(" → ");
+  const lines = [
+    effective ? `实际尝试顺序：${effective}` : "没有可用服务，请至少启用一个翻译服务。",
+    disabled.length ? `不可用会跳过：${disabled.map((item) => `${item.engine.id}（${item.reason}）`).join(", ")}` : "",
+    unknown.length ? `未知 ID 已忽略：${unknown.join(", ")}` : "",
+    duplicate.length ? `重复项已忽略：${duplicate.join(", ")}` : ""
+  ].filter(Boolean);
+  controls.fallbackOrderStatus.textContent = lines.join("\n");
+}
+
+function serviceLabel(provider, settings = currentSettings) {
+  const engine = core.resolveServiceEngine(provider, settings);
+  if (!engine) return provider || "未知服务";
+  return `${engine.name} (${engine.id})`;
 }
 
 async function compareEngines() {
@@ -662,15 +880,15 @@ async function compareEngines() {
     controls.serviceStatus.textContent = "当前环境无法调用扩展后台对比服务";
     return;
   }
-  const engines = settings.serviceEngines.filter((engine) => engine.enabled).slice(0, 5);
+  const engines = settings.serviceEngines.filter((engine) => isEngineRunnable(engine)).slice(0, 5);
   controls.serviceStatus.textContent = "对比中...";
   const lines = [];
   for (const engine of engines) {
     try {
       const response = await chrome.runtime.sendMessage({
         type: "TRANSLY_TRANSLATE",
-        text: "Hello, this is a Transly engine comparison.",
-        url: "https://example.com/transly-compare",
+        text: "Hello, this is an all-in-one translation engine comparison.",
+        url: "https://example.com/translator-compare",
         settings: runtimeSettings({
           ...settings,
           provider: engine.id,
@@ -761,7 +979,11 @@ async function testService() {
   if (!settings) return;
   const engine = core.resolveServiceEngine(activeEngineId || settings.provider, settings);
   if (!engine) {
-    controls.serviceStatus.textContent = "该服务当前不可用，当前版本尚不能测试";
+    controls.serviceStatus.textContent = "测试失败：该服务当前不可用，当前版本尚不能测试";
+    return;
+  }
+  if (!engine.enabled) {
+    controls.serviceStatus.textContent = `测试失败：${engine.name} (${engine.id}) 已停用，请先启用后再测试。`;
     return;
   }
   if (!hasRuntimeMessaging()) {
@@ -771,37 +993,48 @@ async function testService() {
 
   controls.serviceStatus.textContent = "测试中...";
   try {
+    const runtimeOrder = promoteOrder(engine.id, settings.providerFallbackOrder);
     const response = await chrome.runtime.sendMessage({
       type: "TRANSLY_TRANSLATE",
-      text: "Hello, this is a Transly service test.",
-      url: "https://example.com/transly-service-test",
+      text: "Hello, this is an all-in-one translation service test.",
+      url: "https://example.com/translator-service-test",
       settings: runtimeSettings({
         ...settings,
         provider: engine.id,
-        providerFallbackOrder: [engine.id],
+        providerFallbackOrder: runtimeOrder,
         fallbackToDemo: engine.provider === "demo" || settings.fallbackToDemo
       })
     });
     if (!response || response.ok === false) {
-      throw new Error((response && response.error) || "服务测试失败");
+      controls.serviceStatus.textContent = formatServiceTestResult(response || {}, engine, settings, false);
+      return;
     }
-    controls.serviceStatus.textContent = formatServiceTestResult(response);
+    controls.serviceStatus.textContent = formatServiceTestResult(response, engine, settings, true);
   } catch (error) {
-    controls.serviceStatus.textContent = core.sanitizeErrorMessage(error.message || String(error), [
-      settings.customApiKey
-    ]);
+    controls.serviceStatus.textContent = [
+      `测试失败：${serviceLabel(engine.id, settings)}`,
+      `原因：${core.sanitizeErrorMessage(error.message || String(error), [settings.customApiKey, engine.apiKey])}`
+    ].join("\n");
   }
 }
 
-function formatServiceTestResult(response) {
+function formatServiceTestResult(response, requestedEngine, settings, ok) {
   const provider = response.provider || "未知服务";
   const translation = core.normalizeText(response.text || "").slice(0, 120);
   const attempts = Array.isArray(response.attempts)
-    ? response.attempts.map((attempt) => `${attempt.provider}:${attempt.status}`).join(" → ")
+    ? response.attempts.map((attempt) => {
+        const status = attempt.status || (attempt.ok === false ? "failed" : "ok");
+        const error = attempt.error ? `(${core.sanitizeErrorMessage(attempt.error, [requestedEngine.apiKey, settings.customApiKey])})` : "";
+        return `${attempt.provider}:${status}${error}`;
+      }).join(" → ")
     : "";
   return [
-    `测试成功：${provider}`,
+    ok ? "测试成功" : "测试失败",
+    `测试目标：${serviceLabel(requestedEngine.id, settings)}`,
+    `实际服务：${serviceLabel(provider, settings)}`,
     attempts ? `链路：${attempts}` : "",
+    !ok && response.error ? `原因：${core.sanitizeErrorMessage(response.error, [settings.customApiKey, requestedEngine.apiKey])}` : "",
+    response.warning ? `警告：${core.sanitizeErrorMessage(response.warning, [settings.customApiKey, requestedEngine.apiKey])}` : "",
     translation ? `译文：${translation}` : ""
   ].filter(Boolean).join("\n");
 }
@@ -818,10 +1051,10 @@ async function importSettings() {
     const raw = controls.settingsJson.value.trim();
     if (!raw) throw new Error("请先粘贴设置 JSON");
     const imported = JSON.parse(raw);
-    currentSettings = normalizeOptionSettings({
+    currentSettings = reconcileServiceSettings(normalizeOptionSettings({
       ...imported,
       customApiKey: currentSettings.customApiKey
-    });
+    }));
     applySettings(currentSettings);
     await persistFromForm(true);
     setStatus("已导入设置");
@@ -834,8 +1067,8 @@ function updatePreview() {
   if (!controls.stylePreview) return;
   controls.stylePreview.dataset.theme = controls.translationTheme.value;
   controls.stylePreview.dataset.sameLanguage = controls.sameLanguageBackground.value;
-  controls.stylePreview.style.setProperty("--preview-translation-color", controls.translationTextColor.value || "");
-  controls.stylePreview.style.setProperty("--preview-translation-bg", controls.translationBackgroundColor.value || "");
+  controls.stylePreview.style.setProperty("--preview-translation-color", readColorControl(controls.translationTextColor) || "");
+  controls.stylePreview.style.setProperty("--preview-translation-bg", readColorControl(controls.translationBackgroundColor) || "");
   controls.stylePreview.style.setProperty(
     "--preview-translation-scale",
     String(Math.max(70, Math.min(160, Number(controls.translationFontScale.value || 100))) / 100)
@@ -853,6 +1086,56 @@ function updatePreview() {
       button.classList.toggle("is-active", button.getAttribute("data-theme-choice") === controls.translationTheme.value);
     });
   }
+  updateSubtitlePreview();
+}
+
+function updateSubtitlePreview() {
+  if (!controls.subtitlePreview) return;
+  const line = controls.subtitlePreview.querySelector(".subtitle-preview-lines em");
+  if (!line) return;
+  const scale = Math.max(70, Math.min(220, Number(controls.videoSubtitleFontScale.value || 110))) / 100;
+  const color = readColorControl(controls.videoSubtitleTextColor) || "#ffd2e5";
+  const background = readColorControl(controls.videoSubtitleBackgroundColor) || "";
+  controls.subtitlePreview.style.setProperty("--subtitle-preview-scale", String(scale));
+  controls.subtitlePreview.style.setProperty("--subtitle-preview-color", color);
+  controls.subtitlePreview.style.setProperty("--subtitle-preview-background", background || "transparent");
+  line.classList.toggle("has-background", Boolean(background));
+  line.classList.toggle("has-shadow", controls.videoSubtitleTextShadow.checked);
+}
+
+function setColorControl(control, value) {
+  if (!control) return;
+  const color = normalizePaletteColorValue(value);
+  if (color) {
+    control.value = color;
+    control.dataset.colorEmpty = "false";
+  } else {
+    control.value = normalizePaletteColorValue(control.dataset.defaultColor) || "#000000";
+    control.dataset.colorEmpty = "true";
+  }
+  updateColorControl(control);
+}
+
+function readColorControl(control) {
+  if (!control || control.dataset.colorEmpty === "true") return "";
+  return normalizePaletteColorValue(control.value);
+}
+
+function updateColorControl(control) {
+  const output = document.querySelector(`#${control.id}Label`);
+  if (!output) return;
+  const empty = control.dataset.colorEmpty === "true";
+  output.textContent = empty ? control.dataset.emptyLabel || "默认" : normalizePaletteColorValue(control.value);
+  output.style.borderColor = empty ? "" : normalizePaletteColorValue(control.value);
+}
+
+function normalizePaletteColorValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const short = normalized.match(/^#([0-9a-f]{3})$/i);
+  if (short) {
+    return `#${short[1].split("").map((char) => `${char}${char}`).join("")}`;
+  }
+  return /^#[0-9a-f]{6}$/i.test(normalized) ? normalized : "";
 }
 
 function previewFontStack(family) {
@@ -874,14 +1157,13 @@ function updateServiceTiles(provider) {
 function updateProviderFields(provider) {
   const engine = core.resolveServiceEngine(provider, currentSettings);
   const isCustom = Boolean(engine && (engine.type === "openai-compatible" || engine.type === "custom-json" || engine.provider === "custom"));
+  const isMicrosoft = Boolean(engine && (engine.type === "microsoft" || engine.provider === "microsoft"));
   const customPanel = document.querySelector("#customProviderSettings");
-  if (customPanel) customPanel.hidden = !isCustom;
+  if (customPanel) customPanel.hidden = !(isCustom || isMicrosoft);
   [
     controls.customEndpoint,
-    controls.customApiKey,
     controls.customModel,
     controls.engineEndpoint,
-    controls.engineApiKey,
     controls.engineModel,
     controls.engineAiContext,
     controls.engineRichText,
@@ -894,6 +1176,9 @@ function updateProviderFields(provider) {
     controls.engineTemperature
   ].forEach((control) => {
     if (control) control.disabled = !isCustom;
+  });
+  [controls.customApiKey, controls.engineApiKey].forEach((control) => {
+    if (control) control.disabled = !(isCustom || isMicrosoft);
   });
   if (controls.engineType) controls.engineType.disabled = Boolean(engine && engine.locked);
 }

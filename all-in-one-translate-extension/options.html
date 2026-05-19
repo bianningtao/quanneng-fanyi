@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Transly 设置</title>
+    <title>全能翻译设置</title>
     <link rel="stylesheet" href="options.css">
     <script src="content-core.js"></script>
     <script src="options.js" defer></script>
@@ -12,10 +12,10 @@
     <div class="options-shell">
       <aside class="settings-sidebar" aria-label="设置导航">
         <div class="brand">
-          <span class="brand-mark">T</span>
+          <span class="brand-mark">译</span>
           <div>
-            <strong>Transly</strong>
-            <small>沉浸式翻译设置</small>
+            <strong>全能翻译</strong>
+            <small>网页翻译设置</small>
           </div>
         </div>
 
@@ -39,7 +39,7 @@
       <main class="settings-main">
         <header class="page-header">
           <div>
-            <p class="eyebrow">Transly 设置中心</p>
+            <p class="eyebrow">全能翻译设置中心</p>
             <h1 id="sectionTitle">基本设置</h1>
           </div>
           <div class="header-actions">
@@ -61,7 +61,7 @@
             </div>
             <label class="setting-row">
               <span>
-                <strong>启用 Transly</strong>
+                <strong>启用全能翻译</strong>
                 <small>关闭后不会主动翻译当前页面正文。</small>
               </span>
               <input id="enabled" type="checkbox">
@@ -153,7 +153,7 @@
           <div class="setting-group">
             <div class="group-title">
               <h3>译文显示</h3>
-              <span>接近沉浸式阅读，不打断原页面</span>
+              <span>接近自然双语阅读，不打断原页面</span>
             </div>
             <div class="compact-grid">
               <label>
@@ -207,13 +207,21 @@
               <p class="translated-line">译文以更轻的灰蓝文字显示，并用粉色强调当前选择的样式。</p>
             </div>
             <div class="style-custom-grid" aria-label="自定义颜色和大小">
-              <label>
+              <label class="color-setting">
                 <span>译文字体颜色</span>
-                <input id="translationTextColor" type="text" placeholder="#2c8aa3">
+                <div class="color-picker-control">
+                  <input id="translationTextColor" type="color" value="#2c8aa3" data-default-color="#2c8aa3" data-empty-label="跟随样式">
+                  <output id="translationTextColorLabel" for="translationTextColor">跟随样式</output>
+                  <button type="button" data-color-clear="translationTextColor">默认</button>
+                </div>
               </label>
-              <label>
+              <label class="color-setting">
                 <span>译文背景颜色</span>
-                <input id="translationBackgroundColor" type="text" placeholder="#fff2aa">
+                <div class="color-picker-control">
+                  <input id="translationBackgroundColor" type="color" value="#fff2aa" data-default-color="#fff2aa" data-empty-label="透明">
+                  <output id="translationBackgroundColorLabel" for="translationBackgroundColor">透明</output>
+                  <button type="button" data-color-clear="translationBackgroundColor">透明</button>
+                </div>
               </label>
               <label>
                 <span>字体缩放比例（%）</span>
@@ -282,13 +290,13 @@
         <section class="settings-section" data-section="service" aria-labelledby="serviceTitle">
           <div class="section-heading">
             <h2 id="serviceTitle">翻译服务</h2>
-            <p>按真实可用程度维护服务列表，翻译时会按顺序自动切换下一个可用引擎。</p>
+            <p>按本地可用状态维护服务列表，翻译时会按顺序尝试下一个已启用引擎。</p>
           </div>
 
           <div class="engine-workbench">
             <aside class="engine-list-pane" aria-label="翻译服务列表">
               <div class="engine-toolbar">
-                <button id="compareEngines" class="secondary-button" type="button">在线对比翻译服务</button>
+                <button id="compareEngines" class="secondary-button" type="button">对比已启用服务</button>
                 <button id="addCustomEngine" class="secondary-button" type="button">添加自定义翻译服务</button>
               </div>
               <div id="engineList" class="engine-list"></div>
@@ -370,38 +378,38 @@
 
               <div class="setting-group">
                 <div class="group-title">
-                  <h3>引擎行为</h3>
-                  <span>仅自定义引擎会使用提示词和请求限制</span>
+                  <h3>本地请求约束</h3>
+                  <span>限流、截断和分段在本机执行；提示词仅用于自定义引擎</span>
                 </div>
                 <label class="setting-row">
                   <span>
-                    <strong>启用 AI 上下文</strong>
-                    <small>将当前站点和翻译策略放进提示词。</small>
+                    <strong>在提示词中加入本地上下文</strong>
+                    <small>仅自定义 AI 引擎使用，会加入当前站点和翻译策略。</small>
                   </span>
                   <input id="engineAiContext" type="checkbox">
                 </label>
                 <label class="setting-row">
                   <span>
-                    <strong>启用富文本翻译</strong>
-                    <small>提示模型保留链接、代码片段和段落节奏。</small>
+                    <strong>提示保留富文本结构</strong>
+                    <small>作为提示词约束，尽量保留链接、代码片段和段落节奏。</small>
                   </span>
                   <input id="engineRichText" type="checkbox">
                 </label>
                 <div class="compact-grid">
                   <label>
-                    <span>每分钟最大请求数</span>
+                    <span>本地每分钟请求上限</span>
                     <input id="engineMaxRequestsPerMinute" type="number" min="0" max="120" step="1">
                   </label>
                   <label>
-                    <span>单次最大文本长度</span>
+                    <span>本地单次截断长度</span>
                     <input id="engineMaxTextLength" type="number" min="200" max="20000" step="100">
                   </label>
                   <label>
-                    <span>单次最大段落数</span>
+                    <span>本地单次分段上限</span>
                     <input id="engineMaxSegments" type="number" min="1" max="250" step="1">
                   </label>
                   <label>
-                    <span>Temperature</span>
+                    <span>模型 temperature</span>
                     <input id="engineTemperature" type="number" min="0" max="2" step="0.1">
                   </label>
                 </div>
@@ -409,8 +417,8 @@
 
               <div class="setting-group">
                 <div class="group-title">
-                  <h3>提示词</h3>
-                  <span>{{text}}、{{to}}、{{from}}、{{glossary}}、{{imt_style_guide}} 会在请求时替换</span>
+                  <h3>自定义引擎提示词</h3>
+                  <span>{{text}}、{{to}}、{{from}}、{{glossary}}、{{imt_style_guide}} 会在本地组装请求时替换</span>
                 </div>
                 <label class="full-field">
                   <span>系统提示词</span>
@@ -431,14 +439,15 @@
               <div class="setting-group">
                 <div class="group-title">
                   <h3>翻译备份流程</h3>
-                  <span>按顺序尝试，前一个失败后自动切换下一个服务</span>
+                  <span>顺序第一项会作为当前首选，已停用服务不会继续作为首选</span>
                 </div>
                 <label class="setting-row field-row">
                   <span>
                     <strong>服务顺序</strong>
-                    <small>每行一个服务 ID；默认优先 Google，再使用 Microsoft，最后使用自定义 API。</small>
+                    <small>每行一个已配置服务 ID；可直接改行顺序保存。</small>
                   </span>
                   <textarea id="providerFallbackOrder" spellcheck="false" rows="4" placeholder="google&#10;microsoft&#10;custom"></textarea>
+                  <small id="fallbackOrderStatus" class="fallback-order-status" role="status"></small>
                 </label>
                 <label class="setting-row">
                   <span>
@@ -448,7 +457,7 @@
                   <input id="fallbackToDemo" type="checkbox">
                 </label>
                 <div class="button-row">
-                  <button id="testService" class="primary-button" type="button">测试服务</button>
+                  <button id="testService" class="primary-button" type="button">测试当前服务链路</button>
                   <span id="serviceStatus" class="inline-status">尚未测试</span>
                 </div>
               </div>
@@ -458,7 +467,7 @@
 
         <section class="settings-section" data-section="glossary" aria-labelledby="glossaryTitle">
           <div class="section-heading">
-            <h2 id="glossaryTitle">AI 术语库</h2>
+            <h2 id="glossaryTitle">术语库</h2>
             <p>固定特定词汇的译法，尽量让同一个术语在网页、划词、输入框和字幕翻译中保持一致。</p>
           </div>
 
@@ -514,7 +523,7 @@
             <p>在视频播放器字幕层中显示双语字幕，优先使用播放器原生字幕文本，不改变视频画面。</p>
           </div>
 
-          <div class="subtitle-preview" aria-hidden="true">
+          <div id="subtitlePreview" class="subtitle-preview" aria-hidden="true">
             <div class="subtitle-preview-player">
               <span></span>
               <div class="subtitle-preview-lines">
@@ -569,15 +578,36 @@
                 <span>字幕翻译服务</span>
                 <select id="videoSubtitleProvider">
                   <option value="default">跟随网页翻译</option>
-                  <option value="google">Google 免费接口</option>
-                  <option value="custom">自定义 API</option>
-                  <option value="demo">演示翻译</option>
                 </select>
+              </label>
+              <label>
+                <span>译文字号（%）</span>
+                <input id="videoSubtitleFontScale" type="number" min="70" max="220" step="5">
+              </label>
+              <label class="color-setting">
+                <span>译文颜色</span>
+                <div class="color-picker-control">
+                  <input id="videoSubtitleTextColor" type="color" value="#ffd2e5" data-default-color="#ffd2e5" data-empty-label="默认粉色">
+                  <output id="videoSubtitleTextColorLabel" for="videoSubtitleTextColor">#ffd2e5</output>
+                  <button type="button" data-color-reset="videoSubtitleTextColor" data-color-value="#ffd2e5">默认</button>
+                </div>
+              </label>
+              <label class="color-setting">
+                <span>背景颜色</span>
+                <div class="color-picker-control">
+                  <input id="videoSubtitleBackgroundColor" type="color" value="#111111" data-default-color="#111111" data-empty-label="透明">
+                  <output id="videoSubtitleBackgroundColorLabel" for="videoSubtitleBackgroundColor">透明</output>
+                  <button type="button" data-color-clear="videoSubtitleBackgroundColor">透明</button>
+                </div>
+              </label>
+              <label class="inline-check">
+                <span>字幕阴影</span>
+                <input id="videoSubtitleTextShadow" type="checkbox">
               </label>
             </div>
             <div class="info-card">
               <strong>当前实现范围</strong>
-              <span>支持可见字幕文本的双语显示、动态字幕变化、同语言跳过和本地缓存；不做音频识别，也不做平台账号相关能力。</span>
+              <span>支持可见字幕文本的双语显示、动态字幕变化、同语言跳过、本地缓存和译文字号/颜色调整；不做音频识别，也不做平台账号相关能力。</span>
             </div>
           </div>
         </section>
@@ -675,7 +705,7 @@
         </section>
 
         <section class="settings-section" data-section="about">
-          <div class="section-heading"><h2>关于</h2><p>Transly 是本地优先的沉浸式网页翻译扩展。</p></div>
+          <div class="section-heading"><h2>关于</h2><p>全能翻译是本地优先的网页双语翻译扩展。</p></div>
           <div class="about-grid">
             <div><strong>当前能力</strong><span>网页双语翻译、文本翻译、划词、悬停、输入框、悬浮球、侧边栏和站点规则。</span></div>
             <div><strong>本地优先</strong><span>设置保存在浏览器存储；自定义 API Key 只保存在本机 local storage。</span></div>

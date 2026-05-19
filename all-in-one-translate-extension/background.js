@@ -5,8 +5,11 @@ const SETTINGS_KEY = "translySettings";
 const SECRET_KEY = "translyCustomApiKey";
 const GLOSSARY_KEY = "translyCustomGlossaryTerms";
 const ENGINE_SECRET_KEY = "translyServiceEngineSecrets";
+const RATE_LIMIT_KEY = "translyCustomProviderRateLog";
 const GOOGLE_TRANSLATE_ORIGIN = "https://translate.googleapis.com";
 const MICROSOFT_TRANSLATE_ORIGIN = "https://api-edge.cognitive.microsofttranslator.com";
+const CUSTOM_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const customProviderRequestLog = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.sync.get([SETTINGS_KEY], (stored) => {
@@ -64,7 +67,7 @@ function createContextMenus() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: "transly-root",
-      title: "Transly 沉浸式翻译",
+      title: "全能翻译",
       contexts: ["all"]
     });
     chrome.contextMenus.create({
@@ -190,7 +193,8 @@ async function translateMessage(message, sender) {
   const settings = await readSettingsForTranslation(message.settings);
   const text = core.normalizeText(message.text);
   const url = message.url || message.pageUrl || message.href || (sender && sender.tab && sender.tab.url) || "";
-  const providerOrder = core.resolveProviderOrder(settings);
+  const providerPlan = resolveAvailableProviderPlan(settings);
+  const providerOrder = providerPlan.providerOrder;
   const validationProvider = providerOrder[0] || settings.provider;
   const validation = core.validateTranslationRequest({
     text,
@@ -199,10 +203,10 @@ async function translateMessage(message, sender) {
   });
   const attempts = [];
 
-  for (const provider of providerOrder) {
-    const readiness = providerReadiness(provider, validation.settings);
-    if (!readiness.ok) {
-      attempts.push({ provider, status: "skipped", error: readiness.error });
+  for (const entry of providerPlan.entries) {
+    const provider = entry.provider;
+    if (!entry.readiness.ok) {
+      attempts.push({ provider, status: "skipped", error: entry.readiness.error });
       continue;
     }
     try {
@@ -210,6 +214,12 @@ async function translateMessage(message, sender) {
       const usedProvider = payload.provider || provider;
       attempts.push({ provider: usedProvider, status: "success" });
       const failedAttempts = attempts.filter((attempt) => attempt.status === "failed");
+      const warnings = [
+        payload.warning,
+        failedAttempts.length
+          ? failedAttempts.map((attempt) => `${attempt.provider}: ${attempt.error}`).join("; ")
+          : ""
+      ].filter(Boolean);
       const translatedText = core.applyGlossaryToTranslation(
         payload.text,
         validation.text,
@@ -220,11 +230,11 @@ async function translateMessage(message, sender) {
         ...payload,
         text: translatedText,
         provider: usedProvider,
+        engineName: payload.engineName,
         providerOrder,
         attempts,
-        warning: failedAttempts.length
-          ? failedAttempts.map((attempt) => `${attempt.provider}: ${attempt.error}`).join("; ")
-          : undefined
+        statusMessage: `翻译成功：${payload.engineName || usedProvider}`,
+        warning: warnings.length ? warnings.join("; ") : undefined
       };
     } catch (error) {
       attempts.push({
@@ -237,6 +247,28 @@ async function translateMessage(message, sender) {
 
   const summary = attempts.map((attempt) => `${attempt.provider}: ${attempt.error || attempt.status}`).join("; ");
   throw new Error(summary || "所有翻译服务均不可用");
+}
+
+function resolveAvailableProviderPlan(settings) {
+  const candidates = [];
+  addProviderCandidate(candidates, settings && settings.provider);
+  core.resolveProviderOrder(settings).forEach((provider) => addProviderCandidate(candidates, provider));
+
+  const providerOrder = [];
+  const entries = [];
+  for (const provider of candidates) {
+    const readiness = providerReadiness(provider, settings);
+    entries.push({ provider, readiness });
+    if (readiness.ok) {
+      providerOrder.push(provider);
+    }
+  }
+  return { providerOrder, entries };
+}
+
+function addProviderCandidate(candidates, provider) {
+  const normalized = String(provider || "").trim().toLowerCase();
+  if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
 }
 
 function sanitizeTranslationError(error, settings) {
@@ -286,14 +318,22 @@ function providerReadiness(provider, settings) {
   if (!engine) {
     return { ok: false, error: "翻译服务未配置" };
   }
-  if ((engine.type === "openai-compatible" || engine.type === "custom-json") && !(engine.endpoint || settings.customEndpoint)) {
-    return { ok: false, error: "自定义接口未配置" };
-  }
-  if (engine.type === "demo" && settings.provider !== engine.id && settings.provider !== "demo" && !settings.fallbackToDemo) {
+  if (engine.type === "demo" || engine.provider === "demo") {
+    if (settings.provider === engine.id || settings.provider === "demo" || settings.fallbackToDemo) {
+      return { ok: true };
+    }
     return { ok: false, error: "演示回退未开启" };
   }
-  if (!engine.enabled && provider !== settings.provider && engine.type !== "demo") {
-    return { ok: false, error: "翻译服务已隐藏" };
+  if (!engine.enabled) {
+    return { ok: false, error: "翻译服务已停用" };
+  }
+  if (engine.type === "microsoft" || engine.provider === "microsoft") {
+    if (!engine.apiKey) {
+      return { ok: false, error: "Microsoft 需要 API Key，已跳过未鉴权回退" };
+    }
+  }
+  if ((engine.type === "openai-compatible" || engine.type === "custom-json") && !(engine.endpoint || settings.customEndpoint)) {
+    return { ok: false, error: "自定义接口未配置" };
   }
   return { ok: true };
 }
@@ -309,7 +349,8 @@ async function translateWithProvider(provider, text, settings, url) {
   if (engine.type === "demo" || engine.provider === "demo") {
     return {
       text: core.buildDemoTranslation(text, settings.targetLanguage),
-      provider: engine.id
+      provider: engine.id,
+      engineName: engine.name
     };
   }
   throw new Error(`不支持的翻译服务：${provider}`);
@@ -326,16 +367,20 @@ async function translateWithGoogle(text, settings) {
     credentials: "omit"
   });
   if (!response.ok) {
-    throw new Error(`Google translate failed: ${response.status}`);
+    throw await buildHttpError("Google translate failed", response);
   }
   const payload = await response.json();
   return {
     text: core.extractGoogleTranslateResponse(payload),
-    provider: "google"
+    provider: "google",
+    engineName: "Google"
   };
 }
 
 async function translateWithMicrosoft(text, settings, engine) {
+  if (!engine.apiKey) {
+    throw new Error("Microsoft 需要 API Key，无法使用未鉴权端点");
+  }
   const request = core.buildMicrosoftTranslateRequest(text, settings.targetLanguage, settings.sourceLanguage);
   if (!request.url.startsWith(MICROSOFT_TRANSLATE_ORIGIN)) {
     throw new Error("Unexpected Microsoft translate endpoint");
@@ -346,18 +391,36 @@ async function translateWithMicrosoft(text, settings, engine) {
     credentials: "omit",
     headers: {
       "Content-Type": "application/json",
-      Accept: "application/json"
+      Accept: "application/json",
+      "Ocp-Apim-Subscription-Key": engine.apiKey
     },
     body: request.body
   });
   if (!response.ok) {
-    throw new Error(`Microsoft translate failed: ${response.status}`);
+    throw await buildHttpError("Microsoft translate failed", response);
   }
   const payload = await response.json();
   return {
     text: core.extractMicrosoftTranslateResponse(payload),
-    provider: engine.id || "microsoft"
+    provider: engine.id || "microsoft",
+    engineName: engine.name || "Microsoft"
   };
+}
+
+async function buildHttpError(prefix, response) {
+  const status = response && response.status ? response.status : "unknown";
+  const statusText = response && response.statusText ? ` ${response.statusText}` : "";
+  const body = await readErrorBodySnippet(response);
+  return new Error(`${prefix}: ${status}${statusText}${body ? ` - ${body}` : ""}`);
+}
+
+async function readErrorBodySnippet(response) {
+  if (!response || typeof response.text !== "function") return "";
+  try {
+    return String(await response.text()).replace(/\s+/g, " ").trim().slice(0, 240);
+  } catch (error) {
+    return "";
+  }
 }
 
 async function translateWithCustomProvider(text, settings, url, engine) {
@@ -372,27 +435,51 @@ async function translateWithCustomProvider(text, settings, url, engine) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(buildCustomProviderBody(text, settings, url, engine))
-  });
+  const prepared = prepareCustomProviderSegments(text, engine);
+  const translations = [];
+  for (let index = 0; index < prepared.segments.length; index += 1) {
+    await enforceCustomProviderRateLimit(engine);
+    const segment = prepared.segments[index];
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(buildCustomProviderBody(segment, settings, url, engine, {
+        segmentIndex: index + 1,
+        segmentCount: prepared.segments.length,
+        originalLength: prepared.originalLength,
+        truncated: prepared.truncated
+      }))
+    });
 
-  if (!response.ok) {
-    throw new Error(`自定义接口请求失败：${response.status}`);
+    if (!response.ok) {
+      throw await buildHttpError("自定义接口请求失败", response);
+    }
+
+    const payload = await response.json();
+    translations.push(core.extractProviderTranslation(payload));
   }
 
-  const payload = await response.json();
   return {
-    text: core.extractProviderTranslation(payload),
-    provider: engine.id || "custom"
+    text: translations.join("\n"),
+    provider: engine.id || "custom",
+    engineName: engine.name || engine.id || "custom",
+    warning: prepared.truncated
+      ? buildCustomProviderTruncationWarning(prepared, engine)
+      : undefined
   };
 }
 
-function buildCustomProviderBody(text, settings, url, engine = {}) {
+function buildCustomProviderTruncationWarning(prepared, engine = {}) {
+  const label = engine.name || engine.id || "自定义翻译服务";
+  const omittedLength = Math.max(0, Number(prepared.omittedLength) || 0);
+  return `${label} 原文超过本地分段上限，已翻译前 ${prepared.segments.length} 段，约 ${omittedLength} 个字符未发送。`;
+}
+
+function buildCustomProviderBody(text, settings, url, engine = {}, segmentMeta = {}) {
   const glossary = core.resolveGlossaryTerms(text, settings, url);
   const glossaryInstruction = core.buildGlossaryInstruction(text, settings, url);
   const endpoint = engine.endpoint || settings.customEndpoint;
+  const assistantInstruction = buildCustomAssistantInstruction(engine, url, segmentMeta);
   const shouldUseChatBody =
     isChatCompletionsEndpoint(endpoint) ||
     (engine.type === "openai-compatible" && (engine.model || /\/v\d+\//i.test(endpoint)));
@@ -403,6 +490,10 @@ function buildCustomProviderBody(text, settings, url, engine = {}) {
       to: label,
       from: settings.sourceLanguage === "auto" ? "auto" : core.languageLabel(settings.sourceLanguage),
       glossary: glossaryInstruction,
+      strategy: engine.strategy || "general",
+      strategy_instruction: buildStrategyInstruction(engine.strategy),
+      ai_context: buildAiContextInstruction(engine, url),
+      segment_instruction: buildSegmentInstruction(segmentMeta),
       imt_style_guide: engine.richText
         ? "Preserve inline links, code spans, list rhythm, and paragraph breaks when possible."
         : ""
@@ -413,11 +504,14 @@ function buildCustomProviderBody(text, settings, url, engine = {}) {
       messages: [
         {
           role: "system",
-          content: renderPrompt(
-            engine.systemPrompt ||
-              "You are a translation engine. Translate the user text into {{to}}. {{glossary}} Return only the translated text without explanation.",
-            templateVars
-          )
+          content: [
+            renderPrompt(
+              engine.systemPrompt ||
+                "You are a translation engine. Translate the user text into {{to}}. {{glossary}} Return only the translated text without explanation.",
+              templateVars
+            ),
+            assistantInstruction
+          ].filter(Boolean).join("\n")
         },
         {
           role: "user",
@@ -430,8 +524,148 @@ function buildCustomProviderBody(text, settings, url, engine = {}) {
     text,
     sourceLanguage: settings.sourceLanguage,
     targetLanguage: settings.targetLanguage,
-    glossary
+    glossary,
+    strategy: engine.strategy || "general",
+    aiContext: engine.aiContext
+      ? {
+          url: url || "",
+          instruction: buildAiContextInstruction(engine, url)
+        }
+      : false,
+    segment: {
+      index: segmentMeta.segmentIndex || 1,
+      count: segmentMeta.segmentCount || 1,
+      originalLength: segmentMeta.originalLength || String(text || "").length,
+      truncated: Boolean(segmentMeta.truncated)
+    },
+    instruction: assistantInstruction
   };
+}
+
+function prepareCustomProviderSegments(text, engine = {}) {
+  const source = String(text || "");
+  const maxTextLength = Math.max(1, Math.floor(Number(engine.maxTextLength) || source.length || 1));
+  const maxSegments = Math.max(1, Math.floor(Number(engine.maxSegments) || 1));
+  if (source.length <= maxTextLength) {
+    return {
+      segments: [source],
+      originalLength: source.length,
+      truncated: false
+    };
+  }
+
+  const segments = [];
+  let remaining = source;
+  while (remaining && segments.length < maxSegments) {
+    const splitAt = findCustomSegmentBoundary(remaining, maxTextLength);
+    const segment = remaining.slice(0, splitAt).trim();
+    if (segment) segments.push(segment);
+    remaining = remaining.slice(splitAt).trimStart();
+  }
+
+  return {
+    segments: segments.length ? segments : [source.slice(0, maxTextLength).trim()],
+    originalLength: source.length,
+    truncated: remaining.trim().length > 0,
+    omittedLength: remaining.trim().length
+  };
+}
+
+function findCustomSegmentBoundary(text, maxTextLength) {
+  if (text.length <= maxTextLength) return text.length;
+  const window = text.slice(0, maxTextLength);
+  const minimum = Math.floor(maxTextLength * 0.55);
+  const boundaryPatterns = [/\n\s*\n/g, /[.!?。！？]\s+/g, /\n/g, /\s+/g];
+  for (const pattern of boundaryPatterns) {
+    let match;
+    let boundary = -1;
+    while ((match = pattern.exec(window))) {
+      const candidate = match.index + match[0].length;
+      if (candidate >= minimum) boundary = candidate;
+    }
+    if (boundary >= minimum) return boundary;
+  }
+  return maxTextLength;
+}
+
+async function enforceCustomProviderRateLimit(engine = {}) {
+  const limit = Math.floor(Number(engine.maxRequestsPerMinute) || 0);
+  if (limit <= 0) return;
+  const key = engine.id || engine.endpoint || "custom";
+  const now = Date.now();
+  const storedLog = await readRateLimitLog();
+  const recent = (customProviderRequestLog.get(key) || storedLog[key] || [])
+    .filter((timestamp) => Number.isFinite(timestamp) && now - timestamp < CUSTOM_RATE_LIMIT_WINDOW_MS);
+  if (recent.length >= limit) {
+    throw new Error(`自定义接口已达到限流：${limit} 次/分钟，请稍后重试`);
+  }
+  recent.push(now);
+  customProviderRequestLog.set(key, recent);
+  await writeRateLimitLog({ ...storedLog, [key]: recent });
+}
+
+async function readRateLimitLog() {
+  if (!chrome.storage || !chrome.storage.local || typeof chrome.storage.local.get !== "function") {
+    return {};
+  }
+  try {
+    const stored = await chrome.storage.local.get([RATE_LIMIT_KEY]);
+    return stored && typeof stored[RATE_LIMIT_KEY] === "object" && stored[RATE_LIMIT_KEY]
+      ? stored[RATE_LIMIT_KEY]
+      : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+async function writeRateLimitLog(log) {
+  if (!chrome.storage || !chrome.storage.local || typeof chrome.storage.local.set !== "function") {
+    return;
+  }
+  try {
+    await chrome.storage.local.set({ [RATE_LIMIT_KEY]: log });
+  } catch (error) {
+    // The in-memory limiter above still protects the active service worker.
+  }
+}
+
+function buildCustomAssistantInstruction(engine = {}, url, segmentMeta = {}) {
+  return [
+    buildStrategyInstruction(engine.strategy),
+    buildAiContextInstruction(engine, url),
+    buildSegmentInstruction(segmentMeta)
+  ].filter(Boolean).join("\n");
+}
+
+function buildStrategyInstruction(strategy) {
+  const normalized = String(strategy || "general").trim().toLowerCase();
+  const instructions = {
+    technical: "Use precise technical terminology and keep product names, code, commands, and API names unchanged unless a glossary says otherwise.",
+    social: "Keep the tone natural, concise, and suitable for social posts while preserving intent.",
+    academic: "Use formal academic wording and preserve citations, terms, and paragraph structure.",
+    subtitle: "Use short subtitle-friendly sentences and keep timing-friendly line rhythm.",
+    general: "Translate faithfully and naturally for general reading."
+  };
+  return instructions[normalized] || instructions.general;
+}
+
+function buildAiContextInstruction(engine = {}, url) {
+  if (!engine.aiContext) return "";
+  const contextUrl = url ? ` Context URL: ${url}` : "";
+  return `Use available page context to resolve pronouns and domain terms, but translate only the provided text.${contextUrl}`;
+}
+
+function buildSegmentInstruction(segmentMeta = {}) {
+  const count = Number(segmentMeta.segmentCount) || 1;
+  if (count <= 1 && !segmentMeta.truncated) return "";
+  const parts = [];
+  if (count > 1) {
+    parts.push(`Segment ${segmentMeta.segmentIndex || 1} of ${count}: translate this segment independently while keeping continuity with adjacent segments.`);
+  }
+  if (segmentMeta.truncated) {
+    parts.push("The original text exceeded this engine limit and was truncated after the configured maximum segments.");
+  }
+  return parts.join(" ");
 }
 
 function selectUserPrompt(text, engine) {

@@ -1,4 +1,4 @@
-(function bootstrapTranslyImmersive() {
+(function bootstrapOmniTranslator() {
   const core = window.TranslyCore;
   const SETTINGS_KEY = "translySettings";
   const GLOSSARY_KEY = "translyCustomGlossaryTerms";
@@ -34,7 +34,13 @@
     ".dashboard-changelog h2",
     ".dashboard-changelog h3",
     ".dashboard-changelog p",
-    ".dashboard-changelog li"
+    ".dashboard-changelog li",
+    ".js-comment-body p",
+    ".js-comment-body li",
+    ".comment-body p",
+    ".comment-body li",
+    "[data-testid='comment-body'] p",
+    "[data-testid='comment-body'] li"
   ];
   const REDDIT_CHROME_SELECTORS = [
     "reddit-header-large",
@@ -65,7 +71,15 @@
     "aside a[href*='/comments/']",
     "[aria-label='近期帖子'] a",
     "[aria-label='Recent posts'] a",
-    ".recent-post-title"
+    ".recent-post-title",
+    "shreddit-comment [slot='comment']",
+    "shreddit-comment [slot='body']",
+    "shreddit-comment p",
+    "[data-testid='comment'] p",
+    "[data-testid='comment-content'] p",
+    "[data-testid='comment-content'] li",
+    ".comment-body p",
+    ".comment-body li"
   ];
   const FALLBACK_SELECTORS = [
     "p",
@@ -94,7 +108,7 @@
   const subtitleHostSelector = [
     ".ytp-caption-window-container .caption-window",
     ".ytp-caption-window-container [class*='caption-window']",
-    ".vjs-text-track-display .vjs-text-track-cue",
+    ".vjs-text-track-display",
     ".plyr__captions",
     ".jw-text-track-display .jw-text-track-cue",
     ".mejs-captions-layer .mejs-captions-text",
@@ -164,6 +178,7 @@
     hoverTooltip: null,
     dynamicTimer: null,
     dynamicObserver: null,
+    dynamicPending: false,
     dynamicBound: false,
     subtitleTimer: null,
     subtitleObserver: null,
@@ -317,10 +332,10 @@
         toggleTranslationMask();
       }
       if (action === "options") {
-        chrome.runtime.sendMessage({ type: "TRANSLY_OPEN_OPTIONS_PAGE" });
+        sendRuntimeMessage({ type: "TRANSLY_OPEN_OPTIONS_PAGE" }).catch(showRuntimeErrorStatus);
       }
       if (action === "sidepanel") {
-        chrome.runtime.sendMessage({ type: "TRANSLY_OPEN_SIDE_PANEL" });
+        sendRuntimeMessage({ type: "TRANSLY_OPEN_SIDE_PANEL" }).catch(showRuntimeErrorStatus);
       }
       if (action === "floatingSettings") {
         openFloatingSettingsDialog();
@@ -389,7 +404,7 @@
     state.panel.setAttribute("data-position", state.settings.floatingBallPosition);
     state.panel.style.setProperty(
       "--transly-floating-idle-opacity",
-      String(Math.min(1, Math.max(0, (100 - state.settings.floatingBallOpacity) / 100)))
+      String(Math.min(1, Math.max(0, state.settings.floatingBallOpacity / 100)))
     );
     const mainButton = state.panel.querySelector(".transly-panel-main");
     const tooltip = state.panel.querySelector(".transly-panel-tooltip");
@@ -444,8 +459,9 @@
   function handleFloatingMainAction() {
     const action = state.settings.floatingBallClickAction || "toggle";
     if (action === "sidepanel") {
-      chrome.runtime.sendMessage({ type: "TRANSLY_OPEN_SIDE_PANEL" });
-      setStatus(state.messages.openSidePanel);
+      sendRuntimeMessage({ type: "TRANSLY_OPEN_SIDE_PANEL" })
+        .then(() => setStatus(state.messages.openSidePanel))
+        .catch(showRuntimeErrorStatus);
       return;
     }
     if (action === "translate") {
@@ -498,6 +514,7 @@
 
   async function translatePage(options = {}) {
     if (state.translating) {
+      if (options.dynamic) state.dynamicPending = true;
       setStatus(`${state.messages.translating}...`, { persistent: true });
       return { ok: false, error: state.messages.translating };
     }
@@ -555,9 +572,14 @@
 
     state.translating = false;
     if (translated > 0) state.pageTranslated = true;
+    const shouldRunPendingDynamicPass = state.dynamicPending && runId === state.runId;
+    state.dynamicPending = false;
     updatePanelState();
     setStatus(`${state.messages.translated} ${translated}/${total}`);
     installDynamicTranslation();
+    if (shouldRunPendingDynamicPass) {
+      scheduleDynamicTranslation(180);
+    }
     return { ok: true, translated };
   }
 
@@ -580,6 +602,13 @@
     const nodes = [];
 
     collectFromSelectors(root, selectors, limit, nodes, seen, options);
+    const overrideSelectors = siteContentOverrideSelectors();
+    if (overrideSelectors.length && nodes.length < limit) {
+      collectFromSelectors(root, overrideSelectors, limit, nodes, seen, {
+        ...options,
+        siteOverride: true
+      });
+    }
     if (shouldUseSmartSupplementalDiscovery() && nodes.length < limit) {
       collectSmartTextLeaves(root, limit, nodes, seen, {
         ...options,
@@ -742,7 +771,7 @@
     return (
       core.isTranslatableText(text) &&
       !core.hasSensitiveText(text, state.settings) &&
-      !core.shouldSkipByLanguage(text, state.settings.targetLanguage, state.settings)
+      !core.shouldSkipByLanguage(text, state.settings.targetLanguage, state.settings, location.href)
     );
   }
 
@@ -782,6 +811,12 @@
       return REDDIT_CONTENT_OVERRIDE_SELECTORS.some((selector) => safeMatches(element, selector));
     }
     return false;
+  }
+
+  function siteContentOverrideSelectors() {
+    if (state.rule.id === "github") return GITHUB_CONTENT_OVERRIDE_SELECTORS;
+    if (state.rule.id === "reddit") return REDDIT_CONTENT_OVERRIDE_SELECTORS;
+    return [];
   }
 
   function safeMatches(element, selector) {
@@ -865,7 +900,7 @@
     ].join(":");
     if (state.cache.has(key)) return state.cache.get(key);
 
-    const response = await chrome.runtime.sendMessage({
+    const response = await sendRuntimeMessage({
       type: "TRANSLY_TRANSLATE",
       text,
       url: location.href,
@@ -874,10 +909,45 @@
     if (!response || !response.ok) {
       throw new Error((response && response.error) || "翻译失败");
     }
+    if (response.warning) {
+      setStatus(response.warning, { tone: "warning" });
+    }
     if (!response.provider || response.provider === requestSettings.provider) {
       state.cache.set(key, response.text);
     }
     return response.text;
+  }
+
+  async function sendRuntimeMessage(message) {
+    const runtime = runtimeMessagingApi();
+    if (!runtime) throw unavailableRuntimeError();
+    try {
+      return await runtime.sendMessage(message);
+    } catch (error) {
+      const messageText = error && error.message ? error.message : String(error || "");
+      if (/Extension context invalidated|Receiving end does not exist|context invalid/i.test(messageText)) {
+        throw unavailableRuntimeError();
+      }
+      throw error;
+    }
+  }
+
+  function runtimeMessagingApi() {
+    if (typeof chrome !== "undefined" && chrome && chrome.runtime && typeof chrome.runtime.sendMessage === "function") {
+      return chrome.runtime;
+    }
+    if (typeof browser !== "undefined" && browser && browser.runtime && typeof browser.runtime.sendMessage === "function") {
+      return browser.runtime;
+    }
+    return null;
+  }
+
+  function unavailableRuntimeError() {
+    return new Error("扩展通信通道不可用，请刷新页面后重试。");
+  }
+
+  function showRuntimeErrorStatus(error) {
+    setStatus((error && error.message) || unavailableRuntimeError().message);
   }
 
   function installSubtitleTranslation() {
@@ -955,6 +1025,7 @@
       }
       if (group.container.getAttribute("data-transly-subtitle-source") === sourceText) {
         applySubtitleMode(group);
+        applySubtitleStyle(group);
         continue;
       }
       group.container.setAttribute("data-transly-subtitle-source", sourceText);
@@ -1005,9 +1076,14 @@
       state.settings.videoSubtitleProvider === "default"
         ? state.settings.provider
         : state.settings.videoSubtitleProvider;
+    const providerFallbackOrder = [
+      provider,
+      ...state.settings.providerFallbackOrder.filter((item) => item !== provider)
+    ];
     return core.normalizeSettings({
       ...state.settings,
-      provider
+      provider,
+      providerFallbackOrder
     });
   }
 
@@ -1020,14 +1096,32 @@
     group.container.classList.add("transly-subtitle-host");
     group.container.removeAttribute("data-transly-subtitle-error");
     applySubtitleMode(group);
+    applySubtitleStyle(group);
   }
 
   function applySubtitleMode(group) {
     const translationOnly = state.settings.videoSubtitleMode === "translation";
     group.sources.forEach((source) => {
-      source.classList.toggle("transly-subtitle-source-hidden", translationOnly);
+      source.classList.toggle("transly-subtitle-source-hidden", translationOnly && source !== group.container);
     });
     group.container.classList.toggle("transly-subtitle-translation-only", translationOnly);
+    applySubtitleStyle(group);
+  }
+
+  function applySubtitleStyle(group) {
+    const translationNode = directSubtitleTranslationNode(group.container);
+    if (!translationNode) return;
+    const fontScale = Math.min(2.2, Math.max(0.7, Number(state.settings.videoSubtitleFontScale || 110) / 100));
+    const textColor = state.settings.videoSubtitleTextColor || "#ffd2e5";
+    const backgroundColor = state.settings.videoSubtitleBackgroundColor || "";
+    translationNode.style.setProperty(
+      "--transly-subtitle-font-size",
+      `clamp(${Math.round(18 * fontScale)}px, ${(2.1 * fontScale).toFixed(2)}vw, ${Math.round(30 * fontScale)}px)`
+    );
+    translationNode.style.setProperty("--transly-subtitle-color", textColor);
+    translationNode.style.setProperty("--transly-subtitle-background", backgroundColor || "transparent");
+    translationNode.classList.toggle("has-background", Boolean(backgroundColor));
+    translationNode.classList.toggle("has-shadow", state.settings.videoSubtitleTextShadow !== false);
   }
 
   function directSubtitleTranslationNode(container) {
@@ -1183,6 +1277,7 @@
   function clearTranslations() {
     state.runId += 1;
     state.pageTranslated = false;
+    state.dynamicPending = false;
     window.clearTimeout(state.dynamicTimer);
     document.querySelectorAll(".transly-translation-wrapper").forEach((node) => node.remove());
     document.querySelectorAll(".transly-translation").forEach((node) => node.remove());
@@ -1231,7 +1326,7 @@
   async function saveSettings(settings) {
     state.settings = core.normalizeSettings(settings);
     await chrome.storage.sync.set({ [SETTINGS_KEY]: publicSettings(state.settings) });
-    chrome.runtime.sendMessage({ type: "TRANSLY_SETTINGS_CHANGED", settings: runtimeSettings(state.settings) });
+    sendRuntimeMessage({ type: "TRANSLY_SETTINGS_CHANGED", settings: runtimeSettings(state.settings) }).catch(() => {});
   }
 
   function openFloatingSettingsDialog() {
@@ -1304,7 +1399,7 @@
       const action = target.getAttribute("data-floating-action");
       if (action === "dismiss") dismissFloatingSettingsDialog();
       if (action === "apply") applyFloatingSettingsDialog();
-      if (action === "options") chrome.runtime.sendMessage({ type: "TRANSLY_OPEN_OPTIONS_PAGE" });
+      if (action === "options") sendRuntimeMessage({ type: "TRANSLY_OPEN_OPTIONS_PAGE" }).catch(showRuntimeErrorStatus);
     });
 
     const hiddenToggle = dialog.querySelector("input[name='translyFloatingHidden']");
@@ -1497,61 +1592,87 @@
     if (!document.body || state.dynamicObserver || !("MutationObserver" in window)) return;
     state.dynamicObserver = new MutationObserver((mutations) => {
       if (!shouldReactToMutations(mutations)) return;
+      if (state.translating) {
+        state.dynamicPending = true;
+        return;
+      }
       scheduleDynamicTranslation(520);
     });
     state.dynamicObserver.observe(document.body, {
       childList: true,
+      characterData: true,
       subtree: true
     });
   }
 
   function shouldReactToMutations(mutations) {
-    if (!state.settings.enabled || state.translating || document.hidden) return false;
+    if (!state.settings.enabled || document.hidden) return false;
     if (!state.pageTranslated && !state.settings.autoTranslate && !state.autoTranslateActive) return false;
-    return mutations.some((mutation) =>
-      Array.from(mutation.addedNodes || []).some((node) => isRelevantAddedNode(node))
-    );
+    return mutations.some((mutation) => {
+      const nodes = mutation.type === "characterData"
+        ? [mutation.target]
+        : Array.from(mutation.addedNodes || []);
+      return nodes.some((node) => isRelevantAddedNode(node));
+    });
   }
 
   function isRelevantAddedNode(node) {
     if (!node) return false;
     if (node.nodeType === Node.TEXT_NODE) {
-      return shouldTranslateText(node.textContent) && !isTranslyOwned(node.parentElement);
+      return (
+        shouldTranslateText(node.textContent) &&
+        !isTranslyOwned(node.parentElement) &&
+        !isInsideTranslatedElement(node.parentElement)
+      );
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return false;
-    const contentOverride = isSiteContentOverrideElement(node);
     if (isTranslyOwned(node)) return false;
+    if (isInsideTranslatedElement(node)) return false;
+    const contentOverride = isSiteContentOverrideElement(node);
     if ((core.isSkippableElement(node, state.rule) || isSiteChromeElement(node)) && !contentOverride) return false;
-    if (shouldTranslateText(getElementSourceText(node))) return true;
+    if (isCandidateElement(node, { visibleOnly: false })) return true;
     return Boolean(
-      node.querySelector &&
-        Array.from(
-          node.querySelectorAll(
-            [
-              "p",
-              "li",
-              "blockquote",
-              "figcaption",
-              "h1",
-              "h2",
-              "h3",
-              "div[dir='auto']",
-              "[slot='title']",
-              "[slot='text-body']",
-              "[data-testid='post-title']",
-              "a[href*='/comments/']"
-            ].join(", ")
-          )
-        ).some((element) => {
-          const descendantOverride = isSiteContentOverrideElement(element);
-          return (
-            !isTranslyOwned(element) &&
-            !(core.isSkippableElement(element, state.rule) && !descendantOverride) &&
-            !(isSiteChromeElement(element) && !descendantOverride) &&
-            shouldTranslateText(getElementSourceText(element))
-          );
-        })
+      node.querySelector && dynamicMutationSelectors().some((selector) => hasRelevantDescendant(node, selector))
     );
+  }
+
+  function isInsideTranslatedElement(element) {
+    return Boolean(element && element.closest && element.closest(`[${translatedAttribute}]`));
+  }
+
+  function dynamicMutationSelectors() {
+    return Array.from(
+      new Set([
+        ...(state.rule.selectors || []),
+        ...siteContentOverrideSelectors(),
+        "p",
+        "li",
+        "blockquote",
+        "figcaption",
+        "h1",
+        "h2",
+        "h3",
+        "[data-testid='tweetText']",
+        "div[dir='auto']",
+        "[slot='title']",
+        "[slot='text-body']",
+        "[slot='comment']",
+        "[slot='body']",
+        "[data-testid='post-title']",
+        "[data-testid='comment-content']",
+        "a[href*='/comments/']"
+      ])
+    );
+  }
+
+  function hasRelevantDescendant(root, selector) {
+    let elements = [];
+    try {
+      elements = Array.from(root.querySelectorAll(selector));
+    } catch (error) {
+      return false;
+    }
+    return elements.some((element) => isCandidateElement(element, { visibleOnly: false }));
   }
 
   function installUrlChangeDetection() {
@@ -1582,11 +1703,19 @@
   }
 
   function scheduleDynamicTranslation(delay) {
-    if (!state.settings.enabled || state.translating || document.hidden) return;
+    if (!state.settings.enabled || document.hidden) return;
     if (!state.pageTranslated && !state.settings.autoTranslate && !state.autoTranslateActive) return;
+    if (state.translating) {
+      state.dynamicPending = true;
+      return;
+    }
     window.clearTimeout(state.dynamicTimer);
     state.dynamicTimer = window.setTimeout(() => {
-      if (!state.settings.enabled || state.translating || document.hidden) return;
+      if (!state.settings.enabled || document.hidden) return;
+      if (state.translating) {
+        state.dynamicPending = true;
+        return;
+      }
       translatePage({ dynamic: true });
     }, delay);
   }

@@ -62,6 +62,7 @@
 
   const ACTIVE_PROVIDERS = new Set(["google", "microsoft", "custom", "demo"]);
   const PROVIDERS = new Set(["google", "microsoft", "custom", "demo", "openai", "bing", "deepl"]);
+  const DEFAULT_PROVIDER_FALLBACK_ORDER = ["google", "custom"];
   const DISPLAY_MODES = new Set(["dual", "translation", "original", "replace", "hover"]);
   const SUBTITLE_MODES = new Set(["dual", "translation"]);
   const SUBTITLE_PROVIDERS = new Set(["default", "google", "microsoft", "custom", "demo"]);
@@ -511,10 +512,22 @@
         ".discussion-title",
         ".TimelineItem-body p",
         ".TimelineItem-body li",
+        ".TimelineItem-body .markdown-body p",
+        ".TimelineItem-body .markdown-body li",
+        ".js-comment-body p",
+        ".js-comment-body li",
+        ".comment-body p",
+        ".comment-body li",
+        ".review-comment-contents p",
+        ".review-comment-contents li",
         ".commit-title",
         "[data-testid='commit-row-item'] h4"
       ],
       excludeSelectors: [
+        "[itemprop='name']",
+        "[itemprop='author']",
+        "[data-hovercard-type='user']",
+        "[data-hovercard-type='organization']",
         "[role='row']",
         "[role='gridcell']",
         ".react-directory-row",
@@ -533,6 +546,9 @@
         ".commit-author",
         ".commit-meta",
         ".branch-name",
+        ".blob-code",
+        ".blob-code-content",
+        ".file-info",
         ".Label",
         ".Counter",
         "code",
@@ -542,8 +558,23 @@
     {
       id: "twitter",
       matches: ["twitter.com", "x.com", "mobile.twitter.com"],
-      selectors: ["[data-testid='tweetText']", "[data-testid='tweetText'] span"],
-      excludeSelectors: ["header", "nav", "[data-testid='User-Name']", "[data-testid='socialContext']"]
+      selectors: [
+        "[data-testid='tweetText']",
+        "[data-testid='tweetText'] [dir='auto']",
+        "[data-testid='tweetText'] span",
+        "article [data-testid='tweetText'] div[lang]"
+      ],
+      excludeSelectors: [
+        "header",
+        "nav",
+        "[data-testid='User-Name']",
+        "[data-testid='socialContext']",
+        "[data-testid='UserDescription']",
+        "[data-testid='UserCell']",
+        "time",
+        "a[href^='http']",
+        "a[href^='/']"
+      ]
     },
     {
       id: "reddit",
@@ -556,6 +587,15 @@
         "[data-testid='post-title']",
         "[data-testid='post-content'] p",
         "[data-testid='post-content'] li",
+        "shreddit-comment [slot='comment']",
+        "shreddit-comment [slot='body']",
+        "shreddit-comment [slot='text-body']",
+        "[data-testid='comment'] p",
+        "[data-testid='comment'] li",
+        "[data-testid='comment-content'] p",
+        "[data-testid='comment-content'] li",
+        "[data-click-id='text'] p",
+        "[data-click-id='text'] li",
         ".usertext-body p",
         ".usertext-body li",
         ".Post h3",
@@ -577,7 +617,16 @@
         "[aria-label='主导航']",
         "[aria-label='侧边栏']",
         "shreddit-comment-action-row",
-        "[data-testid='post-actions']"
+        "[data-testid='post-actions']",
+        "[data-testid='comment-action-row']",
+        "[slot='authorName']",
+        "shreddit-comment-author",
+        "[data-testid='comment_author_link']",
+        "[data-testid='post_author_link']",
+        "a[href*='/user/']",
+        "a[href*='/u/']",
+        "pre",
+        "code"
       ]
     },
     {
@@ -610,7 +659,7 @@
     return {
       enabled: true,
       provider: "google",
-      providerFallbackOrder: ["google", "microsoft", "custom"],
+      providerFallbackOrder: DEFAULT_PROVIDER_FALLBACK_ORDER.slice(),
       serviceEngines: getBuiltInServiceEngines(),
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
@@ -647,6 +696,10 @@
       videoSubtitleGenericEnabled: false,
       videoSubtitleMode: "dual",
       videoSubtitleProvider: "default",
+      videoSubtitleFontScale: 110,
+      videoSubtitleTextColor: "#ffd2e5",
+      videoSubtitleBackgroundColor: "",
+      videoSubtitleTextShadow: true,
       glossaryEnabled: true,
       enabledGlossaryIds: BUILT_IN_GLOSSARY_BANKS.filter((bank) => bank.enabledByDefault).map((bank) => bank.id),
       customGlossaryTerms: [],
@@ -674,9 +727,11 @@
     const videoSubtitleMode = SUBTITLE_MODES.has(raw.videoSubtitleMode)
       ? raw.videoSubtitleMode
       : defaults.videoSubtitleMode;
-    const videoSubtitleProvider = SUBTITLE_PROVIDERS.has(raw.videoSubtitleProvider)
-      ? raw.videoSubtitleProvider
-      : defaults.videoSubtitleProvider;
+    const videoSubtitleProvider = normalizeSubtitleProvider(
+      raw.videoSubtitleProvider,
+      serviceEngines,
+      defaults.videoSubtitleProvider
+    );
     const hasGlossaryIds = Object.prototype.hasOwnProperty.call(raw, "enabledGlossaryIds");
     const enabledGlossaryIds = normalizeGlossaryIds(
       hasGlossaryIds ? raw.enabledGlossaryIds : defaults.enabledGlossaryIds
@@ -712,6 +767,20 @@
     const translationFontFamily = TRANSLATION_FONT_FAMILIES.has(raw.translationFontFamily)
       ? raw.translationFontFamily
       : defaults.translationFontFamily;
+    const videoSubtitleFontScale = clampNumber(
+      raw.videoSubtitleFontScale,
+      defaults.videoSubtitleFontScale,
+      70,
+      220
+    );
+    const videoSubtitleTextColor = normalizeHexColor(
+      raw.videoSubtitleTextColor,
+      defaults.videoSubtitleTextColor
+    );
+    const videoSubtitleBackgroundColor = normalizeHexColor(
+      raw.videoSubtitleBackgroundColor,
+      defaults.videoSubtitleBackgroundColor
+    );
 
     return {
       ...defaults,
@@ -779,6 +848,13 @@
           : defaults.videoSubtitleGenericEnabled,
       videoSubtitleMode,
       videoSubtitleProvider,
+      videoSubtitleFontScale,
+      videoSubtitleTextColor,
+      videoSubtitleBackgroundColor,
+      videoSubtitleTextShadow:
+        typeof raw.videoSubtitleTextShadow === "boolean"
+          ? raw.videoSubtitleTextShadow
+          : defaults.videoSubtitleTextShadow,
       glossaryEnabled:
         typeof raw.glossaryEnabled === "boolean" ? raw.glossaryEnabled : defaults.glossaryEnabled,
       enabledGlossaryIds,
@@ -815,6 +891,15 @@
     return normalized;
   }
 
+  function normalizeSubtitleProvider(value, serviceEngines, fallback = "default") {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) return fallback;
+    if (SUBTITLE_PROVIDERS.has(normalized)) return normalized;
+    const engines = normalizeServiceEngines(serviceEngines || []);
+    const matchesEngine = engines.some((engine) => engine.id === normalized);
+    return matchesEngine ? normalized : fallback;
+  }
+
   function clampNumber(value, fallback, min, max) {
     const number = Number(value);
     if (!Number.isFinite(number)) return fallback;
@@ -849,12 +934,12 @@
       allowed.add(engine.provider);
     });
     candidates.forEach((item) => {
-      const provider = normalizeProvider(item, "");
+      const provider = String(item || "").trim().toLowerCase();
       if (allowed.has(provider) && !order.includes(provider)) {
         order.push(provider);
       }
     });
-    return order.length ? order : ["google", "microsoft", "custom"];
+    return order.length ? order : DEFAULT_PROVIDER_FALLBACK_ORDER.slice();
   }
 
   function getBuiltInServiceEngines() {
@@ -1207,13 +1292,25 @@
 
   function resolveProviderOrder(settings) {
     const normalizedSettings = normalizeSettings(settings);
-    const order = normalizeProviderOrder(normalizedSettings.providerFallbackOrder, normalizedSettings.serviceEngines);
     if (normalizedSettings.provider === "demo") return ["demo"];
+    const order = normalizeProviderOrder(normalizedSettings.providerFallbackOrder, normalizedSettings.serviceEngines)
+      .filter((provider) => isProviderEnabledForFallback(provider, normalizedSettings));
+    if (normalizedSettings.provider !== "google" && order.includes(normalizedSettings.provider)) {
+      order.splice(order.indexOf(normalizedSettings.provider), 1);
+      order.unshift(normalizedSettings.provider);
+    }
     if (normalizedSettings.fallbackToDemo && !order.includes("demo")) order.push("demo");
     if (!normalizedSettings.fallbackToDemo && normalizedSettings.provider !== "demo") {
       return order.filter((provider) => provider !== "demo");
     }
     return order;
+  }
+
+  function isProviderEnabledForFallback(provider, settings) {
+    const engine = resolveServiceEngine(provider, settings);
+    if (!engine) return true;
+    if (engine.type === "demo" || engine.provider === "demo") return settings.provider === "demo" || settings.fallbackToDemo;
+    return engine.enabled !== false;
   }
 
   function normalizeDomainList(value) {
@@ -1348,10 +1445,21 @@
     if (normalizedSettings.neverAutoTranslateDomains.some((domain) => domainMatches(hostname, domain))) {
       return false;
     }
-    if (normalizedSettings.alwaysTranslateDomains.some((domain) => domainMatches(hostname, domain))) {
-      return true;
-    }
+    if (isAlwaysTranslateUrl(urlLike, normalizedSettings)) return true;
     return normalizedSettings.autoTranslate;
+  }
+
+  function isAlwaysTranslateUrl(urlLike, settings) {
+    const normalizedSettings = normalizeSettings(settings);
+    let parsed = null;
+    try {
+      parsed = new URL(String(urlLike || ""));
+    } catch (error) {
+      return false;
+    }
+    const hostname = normalizeDomain(parsed.hostname);
+    if (!hostname) return false;
+    return normalizedSettings.alwaysTranslateDomains.some((domain) => domainMatches(hostname, domain));
   }
 
   function shouldAutoTranslateLanguage(sourceLanguage, targetLanguage, settings) {
@@ -1408,7 +1516,7 @@
     return patterns.some((pattern) => pattern.test(normalized));
   }
 
-  function shouldSkipByLanguage(text, targetLanguage, settings) {
+  function shouldSkipByLanguage(text, targetLanguage, settings, urlLike) {
     const normalizedSettings = normalizeSettings(settings);
     const normalized = normalizeText(text);
     if (!normalized) return false;
@@ -1423,8 +1531,47 @@
     }
     if (!normalizedSettings.sameLanguageCheck) return false;
     const target = normalizeTargetLanguage(targetLanguage || normalizedSettings.targetLanguage);
-    if (source) return source === target;
+    if (source) {
+      if (source !== target) return false;
+      return !shouldPreferTranslatingMixedLanguageText(normalized, target, normalizedSettings, urlLike);
+    }
     return false;
+  }
+
+  function shouldPreferTranslatingMixedLanguageText(text, targetLanguage, settings, urlLike) {
+    const normalizedSettings = normalizeSettings(settings);
+    const conservative = isAlwaysTranslateUrl(urlLike, normalizedSettings);
+    return hasTranslatableForeignContent(text, targetLanguage || normalizedSettings.targetLanguage, {
+      conservative
+    });
+  }
+
+  function hasTranslatableForeignContent(text, targetLanguage, options = {}) {
+    const normalized = stripNonProseTokens(normalizeText(text));
+    if (!normalized) return false;
+    const target = normalizeTargetLanguage(targetLanguage);
+    const stats = getLanguageStats(normalized);
+    const conservative = Boolean(options.conservative);
+    const latinWords = normalized.match(/[A-Za-z][A-Za-z'-]{1,}/g) || [];
+    const cjk = stats.chinese + stats.japanese + stats.korean;
+    if (target === "zh-CN") {
+      if (conservative) return stats.latin >= 2 && latinWords.length >= 1;
+      return stats.latin >= 24 && latinWords.length >= 4;
+    }
+    if (target === "en" || target === "fr" || target === "es" || target === "de") {
+      return cjk >= (conservative ? 4 : 8);
+    }
+    return stats.latin >= (conservative ? 12 : 24) || cjk >= (conservative ? 4 : 8);
+  }
+
+  function stripNonProseTokens(text) {
+    return String(text || "")
+      .replace(/`[^`]+`/g, " ")
+      .replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ")
+      .replace(/\b[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+/g, " ")
+      .replace(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#[A-Za-z0-9_.-]+)?\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function detectTextLanguage(text) {
@@ -1481,7 +1628,7 @@
     if (hasSensitiveText(normalizedText, normalizedSettings)) {
       throw new Error("检测到敏感文本，已阻止翻译");
     }
-    if (shouldSkipByLanguage(normalizedText, normalizedSettings.targetLanguage, normalizedSettings)) {
+    if (shouldSkipByLanguage(normalizedText, normalizedSettings.targetLanguage, normalizedSettings, url)) {
       throw new Error("文本与目标语言一致，无需翻译");
     }
     assertProviderAvailable(normalizedSettings.provider, normalizedSettings);
@@ -1701,6 +1848,8 @@
     detectTextLanguage,
     hasSensitiveText,
     shouldSkipByLanguage,
+    hasTranslatableForeignContent,
+    shouldPreferTranslatingMixedLanguageText,
     validateTranslationRequest,
     assertProviderAvailable,
     sanitizeErrorMessage,
