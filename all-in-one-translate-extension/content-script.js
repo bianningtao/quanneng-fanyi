@@ -316,7 +316,7 @@
       `<button class="transly-panel-main" type="button" data-action="translate" title="${state.messages.translatePage}" aria-label="${state.messages.translatePage}">${panelIcon("languages")}</button>`,
       `<button class="transly-panel-tool" type="button" data-action="mask" title="${state.messages.toggleTranslationMask}" aria-label="${state.messages.toggleTranslationMask}">${panelIcon("eyeOff")}</button>`,
       `<button class="transly-panel-tool" type="button" data-action="sidepanel" title="${state.messages.openSidePanel}" aria-label="${state.messages.openSidePanel}">${panelIcon("panelRight")}</button>`,
-      `<button class="transly-panel-close" type="button" data-action="floatingSettings" title="悬浮球设置" aria-label="悬浮球设置">${panelIcon("close")}</button>`,
+      `<button class="transly-panel-close" type="button" data-action="floatingSettings" title="快捷按钮设置" aria-label="快捷按钮设置">${panelIcon("close")}</button>`,
       `<div class="transly-panel-tooltip" role="tooltip">${state.messages.translatePage}</div>`,
       `<div class="transly-panel-status" role="status">${state.messages.ready}</div>`
     ].join("");
@@ -495,7 +495,7 @@
       return state.settings.translationMaskEnabled ? "关闭学习模式" : "开启学习模式";
     }
     if (action === "sidepanel") return "打开侧边栏";
-    if (action === "floatingSettings") return "悬浮球设置";
+    if (action === "floatingSettings") return "快捷按钮设置";
     return state.messages.ready;
   }
 
@@ -1344,28 +1344,37 @@
     dialog.setAttribute("aria-labelledby", "transly-floating-settings-title");
     dialog.innerHTML = [
       '<div class="transly-floating-settings-card">',
+      '<div class="transly-floating-settings-head">',
+      '<div>',
+      '<p class="transly-floating-settings-kicker">全能翻译</p>',
+      '<h2 id="transly-floating-settings-title" class="transly-floating-settings-title">快捷按钮</h2>',
+      "</div>",
       '<button class="transly-floating-settings-close" type="button" data-floating-action="dismiss" aria-label="关闭设置">',
       panelIcon("close"),
       "</button>",
-      '<h2 id="transly-floating-settings-title" class="transly-floating-settings-title">悬浮球设置</h2>',
-      '<div class="transly-floating-preview" aria-hidden="true">',
-      '<div class="transly-floating-preview-side is-light"><span>',
-      panelIcon("languages"),
-      "</span></div>",
-      '<div class="transly-floating-preview-side is-dark"><span>',
-      panelIcon("languages"),
-      "</span></div>",
       "</div>",
+      '<div class="transly-floating-preview" aria-hidden="true">',
+      '<span class="transly-floating-preview-track">',
+      '<i class="transly-floating-preview-dot is-tool"></i>',
+      '<i class="transly-floating-preview-dot is-main">',
+      panelIcon("languages"),
+      "</i>",
+      '<i class="transly-floating-preview-dot is-tool"></i>',
+      "</span>",
+      '<span class="transly-floating-preview-copy">悬停展开 · 点击执行</span>',
+      "</div>",
+      '<div class="transly-floating-section">',
       '<label class="transly-floating-settings-row">',
-      "<span>缩小悬浮球</span>",
+      "<span>紧凑按钮</span>",
       `<input name="translyFloatingCompact" type="checkbox" ${state.settings.floatingBallCompact ? "checked" : ""}>`,
       '<i aria-hidden="true"></i>',
       "</label>",
       '<label class="transly-floating-settings-row">',
-      "<span>未触发时隐藏侧栏按钮</span>",
+      "<span>悬停时展开工具</span>",
       `<input name="translyFloatingHoverOnly" type="checkbox" ${state.settings.floatingBallHoverOnly ? "checked" : ""}>`,
       '<i aria-hidden="true"></i>',
       "</label>",
+      "</div>",
       '<div class="transly-floating-controls">',
       '<label><span>点击行为</span><select name="translyFloatingClickAction">',
       floatingSelectOption("toggle", "翻译/显示原文", state.settings.floatingBallClickAction),
@@ -1379,17 +1388,19 @@
       "</select></label>",
       `<label><span>透明度</span><input name="translyFloatingOpacity" type="number" min="0" max="100" step="5" value="${state.settings.floatingBallOpacity}"></label>`,
       "</div>",
+      '<div class="transly-floating-section">',
       '<label class="transly-floating-settings-row">',
-      "<span>隐藏悬浮球</span>",
+      "<span>隐藏按钮</span>",
       '<input name="translyFloatingHidden" type="checkbox" checked>',
       '<i aria-hidden="true"></i>',
       "</label>",
-      '<div class="transly-floating-close-options" role="radiogroup" aria-label="隐藏范围">',
-      floatingCloseOption("session", "本次关闭直到下次访问", "", true),
-      floatingCloseOption("forever", "永久禁用", "可在设置页开启"),
-      floatingCloseOption("site", "当前网站禁用", "可在设置页开启"),
       "</div>",
-      '<button class="transly-floating-settings-primary" type="button" data-floating-action="apply">隐藏悬浮球</button>',
+      '<div class="transly-floating-close-options" role="radiogroup" aria-label="隐藏范围">',
+      floatingCloseOption("session", "本次访问", "刷新或下次进入后恢复", true),
+      floatingCloseOption("site", "当前网站", "可在设置页恢复"),
+      floatingCloseOption("forever", "永久关闭", "可在设置页开启"),
+      "</div>",
+      '<button class="transly-floating-settings-primary" type="button" data-floating-action="apply">隐藏按钮</button>',
       "</div>"
     ].join("");
 
@@ -1411,7 +1422,7 @@
     const options = dialog.querySelector(".transly-floating-close-options");
     hiddenToggle.addEventListener("change", () => {
       const hidden = hiddenToggle.checked;
-      primary.textContent = hidden ? "隐藏悬浮球" : "保存设置";
+      primary.textContent = hidden ? "隐藏按钮" : "保存设置";
       options.classList.toggle("is-disabled", !hidden);
       options.querySelectorAll("input").forEach((input) => {
         input.disabled = !hidden;
