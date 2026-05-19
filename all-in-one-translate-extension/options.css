@@ -1157,6 +1157,24 @@ input[type="checkbox"]:checked::before {
   padding: 16px;
 }
 
+.about-feedback-card {
+  grid-column: 1 / -1;
+}
+
+.about-link {
+  width: fit-content;
+  color: var(--accent);
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.about-link:hover,
+.about-link:focus-visible {
+  color: #ff79ae;
+  outline: 0;
+  text-decoration: underline;
+}
+
 @media (max-width: 1100px) {
   body {
     min-width: 0;
