@@ -44,7 +44,20 @@
 
 ## 安装使用
 
-目前这是源码版插件，可以通过 Chrome 的“加载已解压的扩展程序”安装。
+当前可以通过 GitHub Release 下载 zip，也可以直接从源码目录加载。
+
+### 从 Release 安装
+
+1. 打开 [Releases](https://github.com/bianningtao/quanneng-fanyi/releases)。
+2. 下载最新版本中的 `quanneng-fanyi-v0.1.0.zip`。
+3. 解压 zip 文件。
+4. 打开 Chrome，进入 `chrome://extensions/`。
+5. 打开右上角“开发者模式”。
+6. 点击“加载已解压的扩展程序”。
+7. 选择解压后的 `all-in-one-translate-extension/` 文件夹。
+8. 浏览器工具栏会出现“全能翻译”图标。
+
+### 从源码安装
 
 1. 下载或克隆本仓库。
 2. 打开 Chrome，进入 `chrome://extensions/`。
@@ -127,6 +140,7 @@ OpenAI-compatible 引擎可配置 `/chat/completions` 地址，插件会发送 `
 ```text
 .
 ├── docs/screenshots/              # README 截图
+├── scripts/                       # 图标生成和打包脚本
 ├── all-in-one-translate-extension/ # Chrome 插件源码
 │   ├── manifest.json
 │   ├── background.js
@@ -138,3 +152,17 @@ OpenAI-compatible 引擎可配置 `/chat/completions` 地址，插件会发送 `
 ```
 
 本地开发记录和验证脚本保存在工作区的 `process/`、`tests/` 目录中，这两个目录默认不提交到远端。
+
+## 打包发布
+
+```bash
+scripts/generate-icons.sh
+scripts/package-extension.sh
+```
+
+打包产物会生成到 `dist/`：
+
+- `quanneng-fanyi-v0.1.0.zip`
+- `quanneng-fanyi-v0.1.0.zip.sha256`
+
+发布到 GitHub Release 时，将 zip 和 sha256 文件作为附件上传即可。
