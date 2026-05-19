@@ -701,6 +701,7 @@
     const alreadyTranslated = element.hasAttribute(translatedAttribute);
     if (options.translatedOnly && !alreadyTranslated) return false;
     if (alreadyTranslated && !options.includeTranslated) return false;
+    if (hasTranslatedAncestor(element)) return false;
     if (!options.includeTranslated && hasTranslatedDescendant(element)) return false;
     if (options.smart && !isSmartReadableElement(element)) return false;
     if (options.fallback && !isReadableFallbackElement(element)) return false;
@@ -844,6 +845,12 @@
         `[${translatedAttribute}], .transly-translation-wrapper, .transly-translation`
       )
     );
+  }
+
+  function hasTranslatedAncestor(element) {
+    const parent = element && element.parentElement;
+    if (!parent) return false;
+    return Boolean(parent.closest(`[${translatedAttribute}], .transly-translation-wrapper, .transly-translation`));
   }
 
   function isReadableFallbackElement(element) {
