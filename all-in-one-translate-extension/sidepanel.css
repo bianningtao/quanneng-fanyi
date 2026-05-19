@@ -250,6 +250,21 @@ textarea {
   align-content: start;
 }
 
+.capture-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: #0b0f17;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.capture-card button {
+  min-width: 126px;
+}
+
 .file-drop-zone {
   min-height: 138px;
   padding: 18px;
@@ -322,6 +337,12 @@ textarea {
 
 .file-action-row button {
   min-width: 0;
+}
+
+@media (max-width: 380px) {
+  .capture-card {
+    grid-template-columns: 1fr;
+  }
 }
 
 .switch-row {

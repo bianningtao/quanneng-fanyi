@@ -45,6 +45,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "TRANSLY_FETCH_SUBTITLE_TRACK") {
+    fetchSubtitleTrack(message.url)
+      .then((payload) => sendResponse({ ok: true, ...payload }))
+      .catch((error) => sendResponse({ ok: false, error: core.sanitizeErrorMessage(error.message || String(error)) }));
+    return true;
+  }
+
   if (message.type === "TRANSLY_SETTINGS_CHANGED") {
     broadcastSettings(message.settings, sender.tab && sender.tab.id);
     sendResponse({ ok: true });
@@ -53,6 +60,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   return false;
 });
+
+async function fetchSubtitleTrack(url) {
+  const parsed = new URL(String(url || ""));
+  if (parsed.protocol !== "https:") {
+    throw new Error("字幕地址必须使用 HTTPS");
+  }
+  const hostname = parsed.hostname.replace(/^www\./, "").toLowerCase();
+  const allowedHost = (
+    hostname === "youtube.com" ||
+    hostname === "youtube-nocookie.com" ||
+    hostname.endsWith(".youtube.com") ||
+    hostname.endsWith(".youtube-nocookie.com")
+  );
+  if (!allowedHost) {
+    throw new Error("仅允许读取 YouTube 字幕地址");
+  }
+  const response = await fetch(parsed.toString(), { credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`字幕读取失败：${response.status}`);
+  }
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+  if (text.length > 2 * 1024 * 1024) {
+    throw new Error("字幕文件过大");
+  }
+  return { text, contentType };
+}
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   handleContextMenu(info, tab).catch(() => {});

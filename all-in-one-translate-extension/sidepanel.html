@@ -76,7 +76,15 @@
             <div class="translator-card file-translator-card">
               <div>
                 <h2>文件/媒体</h2>
-                <p class="hint">支持 .txt、.md、.srt、.vtt；PDF 和 OCR 暂未启用。</p>
+                <p class="hint">支持 .txt、.md、.srt、.vtt；也可以从当前 YouTube/网页播放器抓取字幕后下载。</p>
+              </div>
+
+              <div class="capture-card">
+                <div>
+                  <strong>当前网页播放器字幕</strong>
+                  <small>点击后从当前标签页的字幕轨道或 YouTube 字幕源读取，可选择下载原文、译文或双语字幕。</small>
+                </div>
+                <button id="capturePageSubtitles" class="secondary" type="button">抓取当前页面字幕</button>
               </div>
 
               <label id="fileDropZone" class="file-drop-zone" for="documentFileInput">
@@ -101,6 +109,7 @@
 
               <div class="file-action-row">
                 <button id="translateFile" class="primary" type="button">翻译文件</button>
+                <button id="downloadSourceFileTranslation" class="secondary" type="button" disabled>下载原文</button>
                 <button id="downloadFileTranslation" class="secondary" type="button" disabled>下载译文</button>
                 <button id="downloadBilingualFileTranslation" class="secondary" type="button" disabled hidden>下载双语字幕</button>
                 <button id="clearFileTranslation" class="ghost" type="button">清空</button>

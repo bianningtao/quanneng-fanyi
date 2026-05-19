@@ -239,6 +239,10 @@
         sendResponse(getPageInfo());
         return false;
       }
+      if (message.type === "TRANSLY_CAPTURE_PLAYER_SUBTITLES") {
+        capturePlayerSubtitles().then(sendResponse);
+        return true;
+      }
       if (message.type === "TRANSLY_TRANSLATE_SELECTION") {
         translateSelectionText(message.text).then(sendResponse);
         return true;
@@ -1591,6 +1595,265 @@
       excludeSelectors: state.rule.excludeSelectors || [],
       translatedCount: document.querySelectorAll(".transly-translation").length
     };
+  }
+
+  async function capturePlayerSubtitles() {
+    try {
+      const textTrackCapture = await captureTextTrackSubtitles();
+      if (textTrackCapture) return textTrackCapture;
+      const youtubeCapture = await captureYouTubeSubtitles();
+      if (youtubeCapture) return youtubeCapture;
+      return {
+        ok: false,
+        error: "未识别到可下载字幕。请确认播放器已开启字幕，或当前视频提供字幕轨道。"
+      };
+    } catch (error) {
+      return { ok: false, error: error.message || String(error) };
+    }
+  }
+
+  async function captureTextTrackSubtitles() {
+    const videos = Array.from(document.querySelectorAll("video"));
+    for (const video of videos) {
+      const tracks = Array.from(video.textTracks || []);
+      const sortedTracks = tracks
+        .filter((track) => track && (track.kind === "subtitles" || track.kind === "captions"))
+        .sort((left, right) => trackScore(right) - trackScore(left));
+      for (const track of sortedTracks) {
+        const originalMode = track.mode;
+        try {
+          if (track.mode === "disabled") track.mode = "hidden";
+          await waitForSubtitleTrack(track);
+          const cues = subtitleCuesFromTextTrack(track);
+          if (cues.length) {
+            return buildCapturedSubtitleResponse(cues, {
+              filename: subtitleDownloadFilename("player-captions.vtt"),
+              sourceLabel: track.label || track.language || "网页播放器字幕"
+            });
+          }
+        } catch (error) {
+          // A single protected or cross-origin track should not block YouTube caption fallback.
+        } finally {
+          if (originalMode === "disabled") track.mode = originalMode;
+        }
+      }
+    }
+    return null;
+  }
+
+  function trackScore(track) {
+    let score = 0;
+    if (track.mode === "showing") score += 8;
+    if (track.mode === "hidden") score += 4;
+    if (track.kind === "captions") score += 2;
+    const target = core.normalizeLanguageCode(state.settings.targetLanguage);
+    const language = core.normalizeLanguageCode(track.language || "");
+    if (language && language !== target) score += 2;
+    return score;
+  }
+
+  function waitForSubtitleTrack(track) {
+    if (track.cues && track.cues.length) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        track.removeEventListener && track.removeEventListener("load", done);
+        resolve();
+      };
+      track.addEventListener && track.addEventListener("load", done, { once: true });
+      window.setTimeout(done, 700);
+    });
+  }
+
+  function subtitleCuesFromTextTrack(track) {
+    return Array.from(track.cues || [])
+      .map((cue, index) => ({
+        id: cue.id || String(index + 1),
+        startTime: cue.startTime,
+        endTime: cue.endTime,
+        text: readSubtitleCueText(cue)
+      }))
+      .filter((cue) => cue.text && Number.isFinite(Number(cue.startTime)) && Number.isFinite(Number(cue.endTime)));
+  }
+
+  function readSubtitleCueText(cue) {
+    if (!cue) return "";
+    if (typeof cue.text === "string") return core.normalizeText(cue.text);
+    if (typeof cue.getCueAsHTML === "function") {
+      const fragment = cue.getCueAsHTML();
+      return core.normalizeText(fragment && (fragment.textContent || fragment.innerText));
+    }
+    return "";
+  }
+
+  async function captureYouTubeSubtitles() {
+    if (!isYouTubePage()) return null;
+    const tracks = findYouTubeCaptionTracks();
+    if (!tracks.length) return null;
+    const track = chooseYouTubeCaptionTrack(tracks);
+    if (!track || !track.baseUrl) return null;
+    const response = await fetchYouTubeCaptionTrack(track.baseUrl);
+    const cues = core.parseYouTubeJson3Transcript(response);
+    if (!cues.length) return null;
+    const label = youtubeTrackLabel(track);
+    return buildCapturedSubtitleResponse(cues, {
+      filename: subtitleDownloadFilename("youtube-captions.vtt"),
+      sourceLabel: label ? `YouTube 字幕：${label}` : "YouTube 字幕"
+    });
+  }
+
+  function isYouTubePage() {
+    const hostname = String(location.hostname || "").replace(/^www\./, "").toLowerCase();
+    return hostname === "youtube.com" || hostname === "m.youtube.com" || hostname === "youtu.be";
+  }
+
+  function findYouTubeCaptionTracks() {
+    const currentVideoId = currentYouTubeVideoId();
+    const responses = [];
+    for (const script of Array.from(document.scripts || [])) {
+      const text = script.textContent || "";
+      if (!text.includes("captionTracks") || !text.includes("ytInitialPlayerResponse")) continue;
+      const response = parseYouTubeInitialPlayerResponse(text);
+      if (!response) continue;
+      const responseVideoId = response.videoDetails && response.videoDetails.videoId;
+      if (currentVideoId && responseVideoId && responseVideoId !== currentVideoId) continue;
+      responses.push(response);
+    }
+    return responses
+      .flatMap((response) =>
+        (((response.captions || {}).playerCaptionsTracklistRenderer || {}).captionTracks || [])
+      )
+      .filter((track) => track && track.baseUrl);
+  }
+
+  function currentYouTubeVideoId() {
+    try {
+      const url = new URL(location.href);
+      const fromQuery = url.searchParams.get("v");
+      if (fromQuery) return fromQuery;
+      const shortsMatch = url.pathname.match(/\/shorts\/([^/?#]+)/u);
+      if (shortsMatch) return shortsMatch[1];
+      const embedMatch = url.pathname.match(/\/embed\/([^/?#]+)/u);
+      if (embedMatch) return embedMatch[1];
+      if (url.hostname.replace(/^www\./, "") === "youtu.be") {
+        return url.pathname.split("/").filter(Boolean)[0] || "";
+      }
+    } catch (error) {
+      return "";
+    }
+    return "";
+  }
+
+  function parseYouTubeInitialPlayerResponse(scriptText) {
+    const marker = "ytInitialPlayerResponse";
+    const markerIndex = scriptText.indexOf(marker);
+    if (markerIndex < 0) return null;
+    const equalsIndex = scriptText.indexOf("=", markerIndex + marker.length);
+    if (equalsIndex < 0) return null;
+    const jsonStart = scriptText.indexOf("{", equalsIndex);
+    if (jsonStart < 0) return null;
+    const jsonText = extractBalancedJsonObject(scriptText, jsonStart);
+    if (!jsonText) return null;
+    try {
+      return JSON.parse(jsonText);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function extractBalancedJsonObject(text, startIndex) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = startIndex; index < text.length; index += 1) {
+      const char = text[index];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === "\"") {
+          inString = false;
+        }
+        continue;
+      }
+      if (char === "\"") {
+        inString = true;
+      } else if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) return text.slice(startIndex, index + 1);
+      }
+    }
+    return "";
+  }
+
+  function chooseYouTubeCaptionTrack(tracks) {
+    const target = core.normalizeLanguageCode(state.settings.targetLanguage);
+    const source = core.normalizeSourceLanguage(state.settings.sourceLanguage);
+    return tracks
+      .slice()
+      .sort((left, right) => youtubeCaptionTrackScore(right, source, target) - youtubeCaptionTrackScore(left, source, target))[0];
+  }
+
+  function youtubeCaptionTrackScore(track, source, target) {
+    const language = core.normalizeLanguageCode(track.languageCode || track.vssId || "");
+    let score = 0;
+    if (source !== "auto" && language === source) score += 12;
+    if (language && language !== target) score += 4;
+    if (track.kind !== "asr") score += 3;
+    if (track.isTranslatable) score += 1;
+    return score;
+  }
+
+  async function fetchYouTubeCaptionTrack(baseUrl) {
+    const url = new URL(baseUrl);
+    url.searchParams.set("fmt", "json3");
+    const response = await sendRuntimeMessage({
+      type: "TRANSLY_FETCH_SUBTITLE_TRACK",
+      url: url.toString()
+    });
+    if (!response || response.ok === false) {
+      throw new Error((response && response.error) || "YouTube 字幕读取失败");
+    }
+    try {
+      return JSON.parse(response.text || "{}");
+    } catch (error) {
+      throw new Error("YouTube 字幕格式无法解析");
+    }
+  }
+
+  function youtubeTrackLabel(track) {
+    const name = track && track.name;
+    if (!name) return track.languageCode || "";
+    if (name.simpleText) return name.simpleText;
+    if (Array.isArray(name.runs)) return name.runs.map((run) => run.text || "").join("").trim();
+    return track.languageCode || "";
+  }
+
+  function buildCapturedSubtitleResponse(cues, metadata) {
+    const content = core.buildWebVttFromSubtitleCues(cues);
+    return {
+      ok: true,
+      kind: "subtitle",
+      format: "vtt",
+      cues,
+      content,
+      filename: metadata.filename,
+      sourceLabel: metadata.sourceLabel,
+      url: location.href,
+      title: document.title
+    };
+  }
+
+  function subtitleDownloadFilename(fallback) {
+    const title = core.normalizeText(document.title || "");
+    const base = title
+      .replace(/[\\/?:*"<>|]/g, "-")
+      .replace(/\s+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 72);
+    return `${base || fallback.replace(/\.vtt$/u, "")}.vtt`;
   }
 
   async function translateSelectionText(text) {

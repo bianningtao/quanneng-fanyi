@@ -97,6 +97,30 @@
   const TRANSLATION_FONT_FAMILIES = new Set(["", "system", "serif", "sans", "mono", "rounded"]);
   const SERVICE_ENGINE_TYPES = new Set(["google", "microsoft", "openai-compatible", "custom-json", "demo"]);
   const SERVICE_ENGINE_GROUPS = new Set(["free", "custom"]);
+  const MIXED_LANGUAGE_BRAND_TERMS = new Set([
+    "ai",
+    "api",
+    "app",
+    "cli",
+    "css",
+    "github",
+    "gitlab",
+    "google",
+    "hacker",
+    "hn",
+    "html",
+    "llm",
+    "microsoft",
+    "news",
+    "openai",
+    "reddit",
+    "sdk",
+    "twitter",
+    "url",
+    "web3",
+    "x",
+    "youtube"
+  ]);
   const DEFAULT_ENGINE_PROMPTS = {
     system:
       "You are a professional {{to}} native translator. Translate faithfully, preserve meaning, keep names and code unchanged. {{glossary}}",
@@ -1610,9 +1634,18 @@
       Boolean(context.rule && context.rule.forceTranslateWhenMixedLanguage);
     if (
       forceMixed &&
+      source !== normalizeTargetLanguage(target) &&
       hasTranslatableForeignContent(normalized, target, { conservative: true })
     ) {
       return true;
+    }
+    if (
+      normalizedSettings.sameLanguageCheck &&
+      normalizeTargetLanguage(target) === "zh-CN" &&
+      getLanguageStats(normalized).chinese >= 4 &&
+      !shouldPreferTranslatingMixedLanguageText(normalized, target, normalizedSettings, url)
+    ) {
+      return false;
     }
     return !shouldSkipByLanguage(normalized, target, normalizedSettings, url);
   }
@@ -1632,10 +1665,11 @@
     const stats = getLanguageStats(normalized);
     const conservative = Boolean(options.conservative);
     const latinWords = normalized.match(/[A-Za-z][A-Za-z'-]{1,}/g) || [];
+    const latinProseWords = latinWords.filter(isLikelyTranslatableLatinWord);
     const cjk = stats.chinese + stats.japanese + stats.korean;
     if (target === "zh-CN") {
-      if (conservative) return stats.latin >= 2 && latinWords.length >= 1;
-      return stats.latin >= 24 && latinWords.length >= 4;
+      if (conservative) return stats.latin >= 8 && latinProseWords.length >= 2;
+      return stats.latin >= 24 && latinProseWords.length >= 4;
     }
     if (target === "en" || target === "fr" || target === "es" || target === "de") {
       return cjk >= (conservative ? 4 : 8);
@@ -1643,11 +1677,24 @@
     return stats.latin >= (conservative ? 12 : 24) || cjk >= (conservative ? 4 : 8);
   }
 
+  function isLikelyTranslatableLatinWord(word) {
+    const normalized = String(word || "").replace(/^'+|'+$/g, "");
+    const lower = normalized.toLowerCase();
+    if (normalized.length < 3) return false;
+    if (MIXED_LANGUAGE_BRAND_TERMS.has(lower)) return false;
+    if (!/[aeiouy]/i.test(normalized)) return false;
+    if (/^[A-Z0-9]+$/.test(normalized)) return false;
+    if (/^[A-Z][a-z]+(?:[A-Z][a-z]+)+$/.test(normalized)) return false;
+    if (/^[A-Z][a-z]+$/.test(normalized) && normalized.length <= 12) return false;
+    return /[a-z]/.test(normalized);
+  }
+
   function stripNonProseTokens(text) {
     return String(text || "")
       .replace(/`[^`]+`/g, " ")
       .replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ")
       .replace(/\b[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+/g, " ")
+      .replace(/\b(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:\/\S*)?\b/g, " ")
       .replace(/\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:#[A-Za-z0-9_.-]+)?\b/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -1915,6 +1962,83 @@
       .replace(/\b(api[_\s-]?key|token|secret|password)\s*[:=]\s*\S+/gi, "$1=[REDACTED]");
   }
 
+  function subtitleSecondsToTimestamp(value, format = "vtt") {
+    const totalMilliseconds = Math.max(0, Math.round((Number(value) || 0) * 1000));
+    const hours = Math.floor(totalMilliseconds / 3600000);
+    const minutes = Math.floor((totalMilliseconds % 3600000) / 60000);
+    const seconds = Math.floor((totalMilliseconds % 60000) / 1000);
+    const milliseconds = totalMilliseconds % 1000;
+    const separator = format === "srt" ? "," : ".";
+    return [
+      String(hours).padStart(2, "0"),
+      String(minutes).padStart(2, "0"),
+      String(seconds).padStart(2, "0")
+    ].join(":") + `${separator}${String(milliseconds).padStart(3, "0")}`;
+  }
+
+  function normalizeSubtitleCue(cue, index) {
+    const startTime = Math.max(0, Number(cue && cue.startTime) || 0);
+    const fallbackEnd = startTime + 2;
+    const endTime = Math.max(startTime + 0.05, Number(cue && cue.endTime) || fallbackEnd);
+    const text = normalizeText(cue && cue.text);
+    if (!text) return null;
+    return {
+      id: String((cue && cue.id) || index + 1),
+      startTime,
+      endTime,
+      text
+    };
+  }
+
+  function buildWebVttFromSubtitleCues(cues) {
+    const normalizedCues = asArray(cues)
+      .map((cue, index) => normalizeSubtitleCue(cue, index))
+      .filter(Boolean)
+      .sort((left, right) => left.startTime - right.startTime || left.endTime - right.endTime);
+    const blocks = normalizedCues.map((cue, index) => {
+      const identifier = cue.id || String(index + 1);
+      return [
+        identifier,
+        `${subtitleSecondsToTimestamp(cue.startTime, "vtt")} --> ${subtitleSecondsToTimestamp(cue.endTime, "vtt")}`,
+        ...String(cue.text).split(/\n/u)
+      ].join("\n");
+    });
+    return `WEBVTT\n\n${blocks.join("\n\n")}${blocks.length ? "\n" : ""}`;
+  }
+
+  function parseYouTubeJson3Transcript(payload) {
+    const data = typeof payload === "string" ? safeJsonParse(payload) : payload;
+    const events = asArray(data && data.events);
+    let cueIndex = 0;
+    return events
+      .map((event) => {
+        const text = asArray(event && event.segs)
+          .map((segment) => String((segment && segment.utf8) || ""))
+          .join("")
+          .replace(/\u00a0/g, " ")
+          .trim();
+        if (!text) return null;
+        const startTime = Math.max(0, Number(event.tStartMs || 0) / 1000);
+        const duration = Math.max(0.25, Number(event.dDurationMs || 0) / 1000);
+        cueIndex += 1;
+        return {
+          id: String(cueIndex),
+          startTime,
+          endTime: startTime + duration,
+          text: normalizeText(text)
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function safeJsonParse(value) {
+    try {
+      return JSON.parse(String(value || ""));
+    } catch (error) {
+      return null;
+    }
+  }
+
   return {
     LANGUAGE_LABELS,
     UI_MESSAGES,
@@ -1942,6 +2066,9 @@
     applyGlossaryToSourceText,
     applyGlossaryToTranslation,
     glossaryFingerprint,
+    subtitleSecondsToTimestamp,
+    buildWebVttFromSubtitleCues,
+    parseYouTubeJson3Transcript,
     normalizeTargetLanguage,
     normalizeSourceLanguage,
     normalizeLanguageCode,
