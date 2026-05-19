@@ -101,8 +101,14 @@
     "ai",
     "api",
     "app",
+    "asr",
+    "claude",
     "cli",
+    "codex",
     "css",
+    "deepseek",
+    "elevenlabs",
+    "ffmpeg",
     "github",
     "gitlab",
     "google",
@@ -114,12 +120,51 @@
     "news",
     "openai",
     "reddit",
+    "remotion",
     "sdk",
+    "srt",
+    "tailscale",
+    "tmux",
+    "tts",
     "twitter",
     "url",
+    "vtt",
     "web3",
+    "whisper",
     "x",
+    "yaml",
     "youtube"
+  ]);
+  const ENGLISH_FUNCTION_WORDS = new Set([
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "into",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "was",
+    "we",
+    "with",
+    "you",
+    "your"
   ]);
   const DEFAULT_ENGINE_PROMPTS = {
     system:
@@ -1668,6 +1713,7 @@
     const latinProseWords = latinWords.filter(isLikelyTranslatableLatinWord);
     const cjk = stats.chinese + stats.japanese + stats.korean;
     if (target === "zh-CN") {
+      if (cjk >= 4) return hasLikelyEnglishProseRun(normalized, conservative);
       if (conservative) return stats.latin >= 8 && latinProseWords.length >= 2;
       return stats.latin >= 24 && latinProseWords.length >= 4;
     }
@@ -1687,6 +1733,29 @@
     if (/^[A-Z][a-z]+(?:[A-Z][a-z]+)+$/.test(normalized)) return false;
     if (/^[A-Z][a-z]+$/.test(normalized) && normalized.length <= 12) return false;
     return /[a-z]/.test(normalized);
+  }
+
+  function hasLikelyEnglishProseRun(text, conservative) {
+    const threshold = conservative ? 8 : 24;
+    const runs = String(text || "")
+      .split(/[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]+/u)
+      .map((run) => run.trim())
+      .filter(Boolean);
+    return runs.some((run) => {
+      const words = run.match(/[A-Za-z][A-Za-z'-]{1,}/g) || [];
+      const latinLetters = words.join("").length;
+      if (latinLetters < threshold) return false;
+      const proseWords = words.filter(isLikelyTranslatableLatinWord);
+      const functionWordCount = words.filter((word) => ENGLISH_FUNCTION_WORDS.has(word.toLowerCase())).length;
+      if (functionWordCount >= 1 && proseWords.length >= 2) return true;
+      if (proseWords.length >= (conservative ? 5 : 7) && functionWordCount >= 1) return true;
+      return isSentenceCaseEnglishRun(run, words);
+    });
+  }
+
+  function isSentenceCaseEnglishRun(run, words) {
+    if (words.length < 3 || words.length > 8) return false;
+    return /^[\s"'“”‘’]*[A-Z][a-z]+(?:\s+[a-z][a-z'-]{1,}){2,}[.!?。！？]?\s*$/u.test(String(run || ""));
   }
 
   function stripNonProseTokens(text) {
