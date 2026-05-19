@@ -39,15 +39,30 @@ const persistControlNames = [
 ];
 
 let currentSettings = core.createDefaultSettings();
+let currentTabUrl = "";
+let currentHost = "";
 
 initPopup();
 
 async function initPopup() {
-  currentSettings = await loadSettings();
+  const [settings, tabInfo] = await Promise.all([loadSettings(), loadActiveTabInfo()]);
+  currentSettings = settings;
+  currentTabUrl = tabInfo.url;
+  currentHost = tabInfo.host;
   applySettingsToForm(currentSettings);
   bindForm();
   renderVersion();
   setStatus(core.getUiMessages(UI_LANGUAGE).ready);
+}
+
+async function loadActiveTabInfo() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const url = tab && tab.url ? tab.url : "";
+    return { url, host: normalizeHostnameFromUrl(url) };
+  } catch (error) {
+    return { url: "", host: "" };
+  }
 }
 
 async function loadSettings() {
@@ -132,13 +147,18 @@ function applySettingsToForm(settings) {
   controls.provider.value = settings.provider;
   controls.selectionTranslateEnabled.checked = settings.selectionTranslateEnabled;
   controls.hoverTranslateEnabled.checked = settings.hoverTranslateEnabled;
-  controls.floatingBallEnabled.checked = settings.floatingBallEnabled;
-  controls.autoTranslate.checked = settings.autoTranslate;
+  controls.floatingBallEnabled.checked = currentHost
+    ? settings.floatingBallEnabled && !domainListIncludes(settings.floatingBallBlockedDomains, currentHost)
+    : settings.floatingBallEnabled;
+  controls.autoTranslate.checked = currentTabUrl
+    ? core.shouldAutoTranslateUrl(currentTabUrl, settings)
+    : settings.autoTranslate;
 }
 
 async function persistForm() {
+  const siteAwareSettings = applyCurrentSiteSwitches(currentSettings);
   const settings = core.normalizeSettings({
-    ...currentSettings,
+    ...siteAwareSettings,
     enabled: controls.enabled.checked,
     interfaceLanguage: UI_LANGUAGE,
     sourceLanguage: controls.sourceLanguage.value,
@@ -147,8 +167,11 @@ async function persistForm() {
     provider: controls.provider.value,
     selectionTranslateEnabled: controls.selectionTranslateEnabled.checked,
     hoverTranslateEnabled: controls.hoverTranslateEnabled.checked,
-    floatingBallEnabled: controls.floatingBallEnabled.checked,
-    autoTranslate: controls.autoTranslate.checked
+    floatingBallEnabled: siteAwareSettings.floatingBallEnabled,
+    autoTranslate: siteAwareSettings.autoTranslate,
+    floatingBallBlockedDomains: siteAwareSettings.floatingBallBlockedDomains,
+    alwaysTranslateDomains: siteAwareSettings.alwaysTranslateDomains,
+    neverAutoTranslateDomains: siteAwareSettings.neverAutoTranslateDomains
   });
 
   currentSettings = settings;
@@ -159,6 +182,53 @@ async function persistForm() {
   notifyActiveTab("TRANSLY_SETTINGS_CHANGED", { settings: runtimeSettings(settings) });
   setStatus(core.getUiMessages(UI_LANGUAGE).saved);
   return settings;
+}
+
+function applyCurrentSiteSwitches(settings) {
+  if (!currentHost) {
+    return {
+      ...settings,
+      floatingBallEnabled: controls.floatingBallEnabled.checked,
+      autoTranslate: controls.autoTranslate.checked
+    };
+  }
+  const next = { ...settings };
+  next.floatingBallEnabled = controls.floatingBallEnabled.checked ? true : settings.floatingBallEnabled;
+  next.floatingBallBlockedDomains = controls.floatingBallEnabled.checked
+    ? removeDomainFromList(settings.floatingBallBlockedDomains, currentHost)
+    : addDomainToList(settings.floatingBallBlockedDomains, currentHost);
+  next.alwaysTranslateDomains = controls.autoTranslate.checked
+    ? addDomainToList(settings.alwaysTranslateDomains, currentHost)
+    : removeDomainFromList(settings.alwaysTranslateDomains, currentHost);
+  next.neverAutoTranslateDomains = controls.autoTranslate.checked
+    ? removeDomainFromList(settings.neverAutoTranslateDomains, currentHost)
+    : addDomainToList(settings.neverAutoTranslateDomains, currentHost);
+  next.autoTranslate = settings.autoTranslate;
+  return next;
+}
+
+function normalizeHostnameFromUrl(url) {
+  try {
+    return new URL(String(url || "")).hostname.replace(/^www\./, "").toLowerCase();
+  } catch (error) {
+    return "";
+  }
+}
+
+function domainListIncludes(list, domain) {
+  return Array.isArray(list) && list.includes(domain);
+}
+
+function addDomainToList(list, domain) {
+  const values = Array.isArray(list) ? list : [];
+  if (!domain || values.includes(domain)) return values;
+  return [...values, domain];
+}
+
+function removeDomainFromList(list, domain) {
+  const values = Array.isArray(list) ? list : [];
+  if (!domain) return values;
+  return values.filter((item) => item !== domain);
 }
 
 function publicSettings(settings) {

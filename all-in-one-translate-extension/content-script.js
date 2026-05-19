@@ -316,7 +316,7 @@
       `<button class="transly-panel-main" type="button" data-action="translate" title="${state.messages.translatePage}" aria-label="${state.messages.translatePage}">${panelIcon("languages")}</button>`,
       `<button class="transly-panel-tool" type="button" data-action="mask" title="${state.messages.toggleTranslationMask}" aria-label="${state.messages.toggleTranslationMask}">${panelIcon("eyeOff")}</button>`,
       `<button class="transly-panel-tool" type="button" data-action="sidepanel" title="${state.messages.openSidePanel}" aria-label="${state.messages.openSidePanel}">${panelIcon("panelRight")}</button>`,
-      `<button class="transly-panel-close" type="button" data-action="floatingSettings" title="快捷按钮设置" aria-label="快捷按钮设置">${panelIcon("close")}</button>`,
+      `<button class="transly-panel-close" type="button" data-action="floatingSettings" title="关闭快捷按钮" aria-label="关闭快捷按钮">${panelIcon("close")}</button>`,
       `<div class="transly-panel-tooltip" role="tooltip">${state.messages.translatePage}</div>`,
       `<div class="transly-panel-status" role="status">${state.messages.ready}</div>`
     ].join("");
@@ -508,7 +508,7 @@
       return state.settings.translationMaskEnabled ? "关闭学习模式" : "开启学习模式";
     }
     if (action === "sidepanel") return "打开侧边栏";
-    if (action === "floatingSettings") return "快捷按钮设置";
+    if (action === "floatingSettings") return "关闭快捷按钮";
     return state.messages.ready;
   }
 
@@ -1367,7 +1367,7 @@
       '<div class="transly-floating-settings-head">',
       '<div>',
       '<p class="transly-floating-settings-kicker">全能翻译</p>',
-      '<h2 id="transly-floating-settings-title" class="transly-floating-settings-title">快捷按钮</h2>',
+      '<h2 id="transly-floating-settings-title" class="transly-floating-settings-title">关闭快捷按钮</h2>',
       "</div>",
       '<button class="transly-floating-settings-close" type="button" data-floating-action="dismiss" aria-label="关闭设置">',
       panelIcon("close"),
@@ -1381,7 +1381,7 @@
       "</i>",
       '<i class="transly-floating-preview-dot is-tool"></i>',
       "</span>",
-      '<span class="transly-floating-preview-copy">悬停展开 · 点击执行</span>',
+      '<span class="transly-floating-preview-copy">关闭前确认 · 设置会立即生效</span>',
       "</div>",
       '<div class="transly-floating-section">',
       '<label class="transly-floating-settings-row">',
@@ -1410,17 +1410,17 @@
       "</div>",
       '<div class="transly-floating-section">',
       '<label class="transly-floating-settings-row">',
-      "<span>隐藏按钮</span>",
+      "<span>确认隐藏按钮</span>",
       '<input name="translyFloatingHidden" type="checkbox" checked>',
       '<i aria-hidden="true"></i>',
       "</label>",
       "</div>",
       '<div class="transly-floating-close-options" role="radiogroup" aria-label="隐藏范围">',
       floatingCloseOption("session", "本次访问", "刷新或下次进入后恢复", true),
-      floatingCloseOption("site", "当前网站", "可在设置页恢复"),
+      floatingCloseOption("site", "当前网站", "加入不自动翻译，可在弹窗开启"),
       floatingCloseOption("forever", "永久关闭", "可在设置页开启"),
       "</div>",
-      '<button class="transly-floating-settings-primary" type="button" data-floating-action="apply">隐藏按钮</button>',
+      '<button class="transly-floating-settings-primary" type="button" data-floating-action="apply">确认关闭</button>',
       "</div>"
     ].join("");
 
@@ -1442,7 +1442,7 @@
     const options = dialog.querySelector(".transly-floating-close-options");
     hiddenToggle.addEventListener("change", () => {
       const hidden = hiddenToggle.checked;
-      primary.textContent = hidden ? "隐藏按钮" : "保存设置";
+      primary.textContent = hidden ? "确认关闭" : "保存显示设置";
       options.classList.toggle("is-disabled", !hidden);
       options.querySelectorAll("input").forEach((input) => {
         input.disabled = !hidden;
@@ -1505,13 +1505,11 @@
 
     if (mode === "site") {
       const currentHost = normalizeCurrentHostname();
-      const blockedDomains = state.settings.floatingBallBlockedDomains || [];
       settings = core.normalizeSettings({
         ...settings,
-        floatingBallBlockedDomains:
-          currentHost && !blockedDomains.includes(currentHost)
-            ? [...blockedDomains, currentHost]
-            : blockedDomains
+        floatingBallBlockedDomains: addDomainToList(settings.floatingBallBlockedDomains, currentHost),
+        neverAutoTranslateDomains: addDomainToList(settings.neverAutoTranslateDomains, currentHost),
+        alwaysTranslateDomains: removeDomainFromList(settings.alwaysTranslateDomains, currentHost)
       });
       await saveSettings(settings);
       dismissFloatingSettingsDialog();
@@ -1541,6 +1539,17 @@
 
   function normalizeCurrentHostname() {
     return String(location.hostname || "").replace(/^www\./, "").toLowerCase();
+  }
+
+  function addDomainToList(list, domain) {
+    if (!domain) return Array.isArray(list) ? list : [];
+    const values = Array.isArray(list) ? list : [];
+    return values.includes(domain) ? values : [...values, domain];
+  }
+
+  function removeDomainFromList(list, domain) {
+    if (!domain) return Array.isArray(list) ? list : [];
+    return (Array.isArray(list) ? list : []).filter((item) => item !== domain);
   }
 
   function floatingSessionKey() {
