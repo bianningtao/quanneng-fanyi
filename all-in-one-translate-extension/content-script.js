@@ -147,11 +147,28 @@
     "main",
     "article",
     "[role='main']",
+    "[data-pagefind-body]",
+    "[data-docs-content]",
+    "[data-mdx-content]",
     ".content",
     ".page-content",
     ".post-content",
     ".article-content",
-    ".entry-content"
+    ".entry-content",
+    ".markdown",
+    ".markdown-body",
+    ".mdx-content",
+    ".nextra-content",
+    ".docs-content",
+    ".documentation-content",
+    ".doc-content",
+    ".theme-doc-markdown",
+    ".prose",
+    "[class*='markdown' i]",
+    "[class*='mdx' i]",
+    "[class*='prose' i]",
+    "[class*='doc-content' i]",
+    "[class*='docs-content' i]"
   ].join(", ");
   const smartTextSelector = [
     "h1",
@@ -171,6 +188,27 @@
     "div",
     "span"
   ].join(", ");
+  const documentContentScopeSelector = smartScopeSelector;
+  const documentContentTextSelector = [
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "li",
+    "blockquote",
+    "figcaption",
+    "summary",
+    "dt",
+    "dd",
+    "[role='heading']"
+  ].join(", ");
+  const documentContentSelector = documentContentScopeSelector
+    .split(", ")
+    .flatMap((scope) => documentContentTextSelector.split(", ").map((selector) => `${scope} ${selector}`))
+    .join(", ");
   const semanticTextPattern = /(title|headline|heading|summary|description|desc|body|copy|content|text|subtitle|caption|entry|card|tile|teaser|dek|excerpt|lead|changelog|release)/i;
   const inlineTextTags = new Set(["A", "ABBR", "B", "BR", "CITE", "EM", "I", "MARK", "SMALL", "SPAN", "STRONG", "SUB", "SUP", "TIME", "U", "WBR"]);
   const formUiSelector = [
@@ -196,6 +234,18 @@
     "header nav button",
     "header a",
     "header button",
+    "main button",
+    "[role='main'] button",
+    "[data-pagefind-body] button",
+    "[data-docs-content] button",
+    ".nextra-content button",
+    ".docs-content button",
+    ".documentation-content button",
+    ".doc-content button",
+    ".theme-doc-markdown button",
+    ".prose button",
+    "[class*='doc-content' i] button",
+    "[class*='docs-content' i] button",
     "aside a",
     "aside button",
     "[role='navigation'] a",
@@ -648,7 +698,7 @@
     }
 
     const runId = ++state.runId;
-    const effectiveLimit = options.toEnd ? 250 : state.settings.maxBlocks;
+    const effectiveLimit = candidateLimitForOptions(options);
     let candidates = collectCandidates(effectiveLimit, {
       visibleOnly: options.wholePage ? false : state.settings.visibleOnly
     });
@@ -709,6 +759,13 @@
     return translatePage(options);
   }
 
+  function candidateLimitForOptions(options = {}) {
+    if (options.toEnd) return 350;
+    const baseLimit = Math.max(1, Number(state.settings.maxBlocks) || 80);
+    if (shouldCollectStructuredPageUi()) return Math.max(baseLimit, 180);
+    return baseLimit;
+  }
+
   function collectCandidates(limit, options = {}) {
     const root = document.body;
     if (!root) return [];
@@ -725,6 +782,7 @@
     if (shouldReserveStructuredUi) {
       const structuredReserve = Math.min(Math.max(8, Math.ceil(limit * 0.25)), Math.min(30, limit));
       collectStructuredPageUiCandidates(root, structuredReserve, nodes, seen, options, structuredPageUiPrioritySelector);
+      collectDocumentContentCandidates(root, limit, nodes, seen, options);
     }
 
     collectFromSelectors(root, selectors, limit, nodes, seen, options);
@@ -791,6 +849,23 @@
       if (nodes.length >= limit) break;
       if (seen.has(element) && nodes.includes(element)) continue;
       if (!isStructuredPageUiCandidateElement(element, options)) continue;
+      if (nodes.some((node) => node.contains(element) || element.contains(node))) continue;
+      seen.add(element);
+      nodes.push(element);
+    }
+  }
+
+  function collectDocumentContentCandidates(root, limit, nodes, seen, options = {}) {
+    let elements = [];
+    try {
+      elements = Array.from(root.querySelectorAll(documentContentSelector));
+    } catch (error) {
+      return;
+    }
+    for (const element of elements) {
+      if (nodes.length >= limit) break;
+      if (seen.has(element) && nodes.includes(element)) continue;
+      if (!isDocumentContentCandidateElement(element, options)) continue;
       if (nodes.some((node) => node.contains(element) || element.contains(node))) continue;
       seen.add(element);
       nodes.push(element);
@@ -908,6 +983,27 @@
     return text.length <= 220;
   }
 
+  function isDocumentContentCandidateElement(element, options = {}) {
+    if (isTranslyOwned(element)) return false;
+    if (isSubtitleElement(element)) return false;
+    if (isSiteChromeElement(element)) return false;
+    const alreadyTranslated = element.hasAttribute(translatedAttribute);
+    if (options.translatedOnly && !alreadyTranslated) return false;
+    if (alreadyTranslated && !options.includeTranslated) return false;
+    if (hasTranslatedAncestor(element)) return false;
+    if (!options.includeTranslated && hasTranslatedDescendant(element)) return false;
+    if (options.visibleOnly !== false && state.settings.visibleOnly && !isElementNearViewport(element)) return false;
+    if (element.closest("code, pre, kbd, samp") || element.querySelector("code, pre, kbd, samp")) return false;
+    if (isSearchLikeFormControl(element) || isLikelyBrandElement(element)) return false;
+    const text = getElementSourceText(element);
+    if (!shouldTranslateText(text) && !shouldTranslateStructuredUiText(text, element)) return false;
+    if (isHeadingLikeElement(element)) return text.length >= 2;
+    if (["P", "LI", "BLOCKQUOTE", "FIGCAPTION", "SUMMARY", "DT", "DD"].includes(element.tagName)) {
+      return text.length >= 2;
+    }
+    return text.length >= 12;
+  }
+
   function shouldCollectStructuredPageUi() {
     if (state.rule.id !== "default") return false;
     const path = `${location.hostname} ${location.pathname}`.toLowerCase();
@@ -938,6 +1034,12 @@
     const container = element.closest("header, nav");
     if (!container) return false;
     if (element.matches("nav a, nav button")) return false;
+    if (
+      element.matches("button, [role='button']") &&
+      /\b(copy|download|open|view|show|hide|expand|collapse|next|previous|submit|create|save|cancel|apply|reset|edit)\b/i.test(text)
+    ) {
+      return false;
+    }
     if (element.id && /(brand|logo)/i.test(element.id)) return true;
     if (typeof element.className === "string" && /(brand|logo)/i.test(element.className)) return true;
     if (element.querySelector("img, svg")) return true;
@@ -2306,7 +2408,8 @@
         "[data-testid='comment-content']",
         "a[href*='/comments/']",
         formUiSelector,
-        structuredPageUiSelector
+        structuredPageUiSelector,
+        documentContentSelector
       ])
     );
   }
@@ -2322,7 +2425,8 @@
       (element) =>
         isCandidateElement(element, { visibleOnly: false }) ||
         isFormUiCandidateElement(element, { visibleOnly: false }) ||
-        (shouldCollectStructuredPageUi() && isStructuredPageUiCandidateElement(element, { visibleOnly: false }))
+        (shouldCollectStructuredPageUi() && isStructuredPageUiCandidateElement(element, { visibleOnly: false })) ||
+        (shouldCollectStructuredPageUi() && isDocumentContentCandidateElement(element, { visibleOnly: false }))
     );
   }
 
