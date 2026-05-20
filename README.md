@@ -50,7 +50,7 @@
 ### 从 Release 安装
 
 1. 打开 [Releases](https://github.com/bianningtao/quanneng-fanyi/releases)。
-2. 下载最新版本中的 `quanneng-fanyi-v0.1.1.zip`。
+2. 下载最新版本中的 `quanneng-fanyi-v0.1.2.zip`。
 3. 解压 zip 文件。
 4. 打开 Chrome，进入 `chrome://extensions/`。
 5. 打开右上角“开发者模式”。
@@ -179,8 +179,8 @@ scripts/package-extension.sh
 
 打包产物会生成到 `dist/`：
 
-- `quanneng-fanyi-v0.1.1.zip`
-- `quanneng-fanyi-v0.1.1.zip.sha256`
+- `quanneng-fanyi-v0.1.2.zip`
+- `quanneng-fanyi-v0.1.2.zip.sha256`
 
 发布到 GitHub Release 时，将 zip 和 sha256 文件作为附件上传即可。
 
