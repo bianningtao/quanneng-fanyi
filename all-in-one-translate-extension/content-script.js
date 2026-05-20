@@ -246,6 +246,13 @@
     ".prose button",
     "[class*='doc-content' i] button",
     "[class*='docs-content' i] button",
+    "footer a",
+    "footer button",
+    "[class*='pagination' i] a",
+    "[class*='pager' i] a",
+    "[aria-label*='pagination' i] a",
+    "[aria-label*='previous' i]",
+    "[aria-label*='next' i]",
     "aside a",
     "aside button",
     "[role='navigation'] a",
@@ -993,7 +1000,7 @@
     if (hasTranslatedAncestor(element)) return false;
     if (!options.includeTranslated && hasTranslatedDescendant(element)) return false;
     if (options.visibleOnly !== false && state.settings.visibleOnly && !isElementNearViewport(element)) return false;
-    if (element.closest("code, pre, kbd, samp") || element.querySelector("code, pre, kbd, samp")) return false;
+    if (element.closest("code, pre, kbd, samp") || element.querySelector("pre")) return false;
     if (isSearchLikeFormControl(element) || isLikelyBrandElement(element)) return false;
     const text = getElementSourceText(element);
     if (!shouldTranslateText(text) && !shouldTranslateStructuredUiText(text, element)) return false;
