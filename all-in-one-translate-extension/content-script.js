@@ -191,7 +191,7 @@
     "select option",
     "option"
   ].join(", ");
-  const structuredPageUiSelector = [
+  const structuredPageUiPrioritySelector = [
     "header nav a",
     "header nav button",
     "header a",
@@ -207,7 +207,10 @@
     "th",
     "td",
     "dt",
-    "summary",
+    "summary"
+  ].join(", ");
+  const structuredPageUiSelector = [
+    structuredPageUiPrioritySelector,
     "main > p",
     "article > p",
     "section > p"
@@ -247,7 +250,7 @@
       state.siteTranslationState = siteTranslationState;
       state.messages = core.getUiMessages(settings.interfaceLanguage);
       state.rule = core.getSiteRule(location.href, settings.userRules);
-      state.autoTranslateActive = shouldAutoTranslateCurrentPage(settings) || isSiteTranslationActive();
+      state.autoTranslateActive = shouldAutoTranslateConsideringSiteState(settings);
       mountPanel();
       bindDocumentInteractions();
       installDynamicTranslation();
@@ -305,7 +308,7 @@
         state.cache.clear();
         state.messages = core.getUiMessages(state.settings.interfaceLanguage);
         state.rule = core.getSiteRule(location.href, state.settings.userRules);
-        state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings) || isSiteTranslationActive();
+        state.autoTranslateActive = shouldAutoTranslateConsideringSiteState(state.settings);
         syncSubtitleTranslation();
         updatePanelState();
         sendResponse({ ok: true });
@@ -352,7 +355,12 @@
     return state.siteTranslationState[currentSiteTranslationKey()] === "translated";
   }
 
+  function isSiteTranslationOriginal() {
+    return state.siteTranslationState[currentSiteTranslationKey()] === "original";
+  }
+
   function isPageTranslationActive() {
+    if (isSiteTranslationOriginal()) return state.pageTranslated;
     return state.pageTranslated || state.autoTranslateActive || state.settings.autoTranslate || isSiteTranslationActive();
   }
 
@@ -372,6 +380,11 @@
       core.shouldAutoTranslateUrl(location.href, settings) ||
       core.shouldAutoTranslateLanguage(detectDocumentLanguage(), settings.targetLanguage, settings)
     );
+  }
+
+  function shouldAutoTranslateConsideringSiteState(settings) {
+    if (isSiteTranslationOriginal()) return false;
+    return shouldAutoTranslateCurrentPage(settings) || isSiteTranslationActive();
   }
 
   function detectDocumentLanguage() {
@@ -623,7 +636,7 @@
     state.siteTranslationState = await loadSiteTranslationState();
     state.messages = core.getUiMessages(state.settings.interfaceLanguage);
     state.rule = core.getSiteRule(location.href, state.settings.userRules);
-    state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings) || isSiteTranslationActive();
+    state.autoTranslateActive = shouldAutoTranslateConsideringSiteState(state.settings);
     if (!state.settings.enabled) {
       setStatus(state.messages.paused);
       return { ok: false, error: state.messages.extensionDisabled };
@@ -708,6 +721,11 @@
     const hasSiteSpecificSelectors = state.rule.id !== "default" && selectors.length;
     const seen = new Set();
     const nodes = [];
+    const shouldReserveStructuredUi = shouldCollectStructuredPageUi();
+    if (shouldReserveStructuredUi) {
+      const structuredReserve = Math.min(Math.max(8, Math.ceil(limit * 0.25)), Math.min(30, limit));
+      collectStructuredPageUiCandidates(root, structuredReserve, nodes, seen, options, structuredPageUiPrioritySelector);
+    }
 
     collectFromSelectors(root, selectors, limit, nodes, seen, options);
     const overrideSelectors = siteContentOverrideSelectors();
@@ -726,7 +744,7 @@
     if (nodes.length < limit) {
       collectFormUiCandidates(root, limit, nodes, seen, options);
     }
-    if (shouldCollectStructuredPageUi() && nodes.length < limit) {
+    if (shouldReserveStructuredUi && nodes.length < limit) {
       collectStructuredPageUiCandidates(root, limit, nodes, seen, options);
     }
     if (hasSiteSpecificSelectors) return nodes;
@@ -762,10 +780,10 @@
     }
   }
 
-  function collectStructuredPageUiCandidates(root, limit, nodes, seen, options = {}) {
+  function collectStructuredPageUiCandidates(root, limit, nodes, seen, options = {}, selector = structuredPageUiSelector) {
     let elements = [];
     try {
-      elements = Array.from(root.querySelectorAll(structuredPageUiSelector));
+      elements = Array.from(root.querySelectorAll(selector));
     } catch (error) {
       return;
     }
@@ -1607,7 +1625,7 @@
       element.classList.remove("transly-replaced", "transly-hoverable");
     });
     if (options.persistSiteState) persistSiteTranslationState("original");
-    state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings) || isSiteTranslationActive();
+    state.autoTranslateActive = shouldAutoTranslateConsideringSiteState(state.settings);
     updatePanelState();
     setStatus(state.messages.cleared);
   }
@@ -2252,6 +2270,7 @@
     if (isInsideTranslatedElement(node)) return false;
     const contentOverride = isSiteContentOverrideElement(node);
     if (isFormUiCandidateElement(node, { visibleOnly: false })) return true;
+    if (shouldCollectStructuredPageUi() && isStructuredPageUiCandidateElement(node, { visibleOnly: false })) return true;
     if ((core.isSkippableElement(node, state.rule) || isSiteChromeElement(node)) && !contentOverride) return false;
     if (isCandidateElement(node, { visibleOnly: false })) return true;
     return Boolean(
@@ -2286,7 +2305,8 @@
         "[data-testid='post-title']",
         "[data-testid='comment-content']",
         "a[href*='/comments/']",
-        formUiSelector
+        formUiSelector,
+        structuredPageUiSelector
       ])
     );
   }
@@ -2301,7 +2321,8 @@
     return elements.some(
       (element) =>
         isCandidateElement(element, { visibleOnly: false }) ||
-        isFormUiCandidateElement(element, { visibleOnly: false })
+        isFormUiCandidateElement(element, { visibleOnly: false }) ||
+        (shouldCollectStructuredPageUi() && isStructuredPageUiCandidateElement(element, { visibleOnly: false }))
     );
   }
 
@@ -2334,7 +2355,7 @@
     if (state.lastUrl === location.href) return;
     state.lastUrl = location.href;
     state.rule = core.getSiteRule(location.href, state.settings.userRules);
-    state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings) || isSiteTranslationActive();
+    state.autoTranslateActive = shouldAutoTranslateConsideringSiteState(state.settings);
     scheduleDynamicTranslation(420);
   }
 
