@@ -2,10 +2,12 @@
   const core = window.TranslyCore;
   const SETTINGS_KEY = "translySettings";
   const GLOSSARY_KEY = "translyCustomGlossaryTerms";
+  const SITE_TRANSLATION_STATE_KEY = "translySiteTranslationState";
   const translatedAttribute = "data-transly-translated";
   const originalTextAttribute = "data-transly-original-text";
   const originalHtmlAttribute = "data-transly-original-html";
   const originalDisplayAttribute = "data-transly-original-display";
+  const originalPlaceholderAttribute = "data-transly-original-placeholder";
   const translyOwnedSelector = "[data-transly-owned], [data-transly-panel]";
   const GITHUB_CHROME_SELECTORS = [
     "[itemprop='name']",
@@ -24,7 +26,13 @@
     "file-tree",
     ".branch-name",
     ".commit-meta",
-    ".commit-author"
+    ".commit-author",
+    "button",
+    "input",
+    "textarea",
+    "select",
+    "[role='button']",
+    "[aria-haspopup='true']"
   ];
   const GITHUB_CONTENT_OVERRIDE_SELECTORS = [
     "[data-testid='dashboard-changelog'] h2",
@@ -165,6 +173,45 @@
   ].join(", ");
   const semanticTextPattern = /(title|headline|heading|summary|description|desc|body|copy|content|text|subtitle|caption|entry|card|tile|teaser|dek|excerpt|lead|changelog|release)/i;
   const inlineTextTags = new Set(["A", "ABBR", "B", "BR", "CITE", "EM", "I", "MARK", "SMALL", "SPAN", "STRONG", "SUB", "SUP", "TIME", "U", "WBR"]);
+  const formUiSelector = [
+    "dialog h1",
+    "dialog h2",
+    "dialog h3",
+    "[role='dialog'] h1",
+    "[role='dialog'] h2",
+    "[role='dialog'] h3",
+    "label",
+    "button",
+    "[role='button']",
+    "[role='menuitem']",
+    "[role='option']",
+    "input[placeholder]",
+    "textarea[placeholder]",
+    "[placeholder]",
+    "select option",
+    "option"
+  ].join(", ");
+  const structuredPageUiSelector = [
+    "header nav a",
+    "header nav button",
+    "header a",
+    "header button",
+    "aside a",
+    "aside button",
+    "[role='navigation'] a",
+    "[role='navigation'] button",
+    "[aria-label*='page' i] a",
+    "[aria-label*='toc' i] a",
+    "[class*='toc' i] a",
+    "[class*='sidebar' i] a",
+    "th",
+    "td",
+    "dt",
+    "summary",
+    "main > p",
+    "article > p",
+    "section > p"
+  ].join(", ");
 
   const state = {
     settings: core.createDefaultSettings(),
@@ -184,6 +231,7 @@
     subtitleObserver: null,
     subtitleRunId: 0,
     floatingSettingsDialog: null,
+    siteTranslationState: {},
     autoTranslateActive: false,
     pageTranslated: false,
     lastUrl: location.href,
@@ -194,11 +242,12 @@
   init();
 
   function init() {
-    loadSettings().then((settings) => {
+    Promise.all([loadSettings(), loadSiteTranslationState()]).then(([settings, siteTranslationState]) => {
       state.settings = settings;
+      state.siteTranslationState = siteTranslationState;
       state.messages = core.getUiMessages(settings.interfaceLanguage);
       state.rule = core.getSiteRule(location.href, settings.userRules);
-      state.autoTranslateActive = shouldAutoTranslateCurrentPage(settings);
+      state.autoTranslateActive = shouldAutoTranslateCurrentPage(settings) || isSiteTranslationActive();
       mountPanel();
       bindDocumentInteractions();
       installDynamicTranslation();
@@ -223,7 +272,7 @@
         return true;
       }
       if (message.type === "TRANSLY_CLEAR") {
-        clearTranslations();
+        clearTranslations({ persistSiteState: true });
         sendResponse({ ok: true });
         return false;
       }
@@ -256,7 +305,7 @@
         state.cache.clear();
         state.messages = core.getUiMessages(state.settings.interfaceLanguage);
         state.rule = core.getSiteRule(location.href, state.settings.userRules);
-        state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings);
+        state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings) || isSiteTranslationActive();
         syncSubtitleTranslation();
         updatePanelState();
         sendResponse({ ok: true });
@@ -281,6 +330,41 @@
         syncSettings.customGlossaryTerms ||
         []
     });
+  }
+
+  async function loadSiteTranslationState() {
+    if (!chrome.storage.local || !chrome.storage.local.get) return {};
+    try {
+      const stored = await chrome.storage.local.get([SITE_TRANSLATION_STATE_KEY]);
+      return stored[SITE_TRANSLATION_STATE_KEY] && typeof stored[SITE_TRANSLATION_STATE_KEY] === "object"
+        ? stored[SITE_TRANSLATION_STATE_KEY]
+        : {};
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function currentSiteTranslationKey() {
+    return location.hostname.replace(/^www\./i, "").toLowerCase();
+  }
+
+  function isSiteTranslationActive() {
+    return state.siteTranslationState[currentSiteTranslationKey()] === "translated";
+  }
+
+  function isPageTranslationActive() {
+    return state.pageTranslated || state.autoTranslateActive || state.settings.autoTranslate || isSiteTranslationActive();
+  }
+
+  function persistSiteTranslationState(value) {
+    const key = currentSiteTranslationKey();
+    state.siteTranslationState = {
+      ...state.siteTranslationState,
+      [key]: value
+    };
+    if (!chrome.storage.local || !chrome.storage.local.set) return;
+    const writeResult = chrome.storage.local.set({ [SITE_TRANSLATION_STATE_KEY]: state.siteTranslationState });
+    if (writeResult && typeof writeResult.catch === "function") writeResult.catch(() => {});
   }
 
   function shouldAutoTranslateCurrentPage(settings) {
@@ -536,9 +620,10 @@
       return { ok: false, error: state.messages.translating };
     }
     state.settings = await loadSettings();
+    state.siteTranslationState = await loadSiteTranslationState();
     state.messages = core.getUiMessages(state.settings.interfaceLanguage);
     state.rule = core.getSiteRule(location.href, state.settings.userRules);
-    state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings);
+    state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings) || isSiteTranslationActive();
     if (!state.settings.enabled) {
       setStatus(state.messages.paused);
       return { ok: false, error: state.messages.extensionDisabled };
@@ -589,6 +674,9 @@
 
     state.translating = false;
     if (translated > 0) state.pageTranslated = true;
+    if (translated > 0 && !options.dynamic && options.persistSiteState !== false) {
+      persistSiteTranslationState("translated");
+    }
     const shouldRunPendingDynamicPass = state.dynamicPending && runId === state.runId;
     state.dynamicPending = false;
     updatePanelState();
@@ -602,7 +690,7 @@
 
   async function togglePageTranslation(options = {}) {
     if (state.pageTranslated) {
-      clearTranslations();
+      clearTranslations({ persistSiteState: true });
       return { ok: true, translated: 0, cleared: true };
     }
     return translatePage(options);
@@ -635,6 +723,12 @@
         smart: true
       });
     }
+    if (nodes.length < limit) {
+      collectFormUiCandidates(root, limit, nodes, seen, options);
+    }
+    if (shouldCollectStructuredPageUi() && nodes.length < limit) {
+      collectStructuredPageUiCandidates(root, limit, nodes, seen, options);
+    }
     if (hasSiteSpecificSelectors) return nodes;
     if (!nodes.length) {
       collectFromSelectors(root, FALLBACK_SELECTORS, limit, nodes, seen, {
@@ -649,6 +743,40 @@
       });
     }
     return nodes;
+  }
+
+  function collectFormUiCandidates(root, limit, nodes, seen, options = {}) {
+    let elements = [];
+    try {
+      elements = Array.from(root.querySelectorAll(formUiSelector));
+    } catch (error) {
+      return;
+    }
+    for (const element of elements) {
+      if (nodes.length >= limit) break;
+      if (seen.has(element)) continue;
+      if (!isFormUiCandidateElement(element, options)) continue;
+      if (nodes.some((node) => node.contains(element) || element.contains(node))) continue;
+      seen.add(element);
+      nodes.push(element);
+    }
+  }
+
+  function collectStructuredPageUiCandidates(root, limit, nodes, seen, options = {}) {
+    let elements = [];
+    try {
+      elements = Array.from(root.querySelectorAll(structuredPageUiSelector));
+    } catch (error) {
+      return;
+    }
+    for (const element of elements) {
+      if (nodes.length >= limit) break;
+      if (seen.has(element) && nodes.includes(element)) continue;
+      if (!isStructuredPageUiCandidateElement(element, options)) continue;
+      if (nodes.some((node) => node.contains(element) || element.contains(node))) continue;
+      seen.add(element);
+      nodes.push(element);
+    }
   }
 
   function shouldUseSmartSupplementalDiscovery() {
@@ -729,6 +857,108 @@
     return true;
   }
 
+  function isFormUiCandidateElement(element, options = {}) {
+    if (isTranslyOwned(element)) return false;
+    if (isSubtitleElement(element)) return false;
+    if (isSiteChromeElement(element)) return false;
+    const alreadyTranslated = element.hasAttribute(translatedAttribute);
+    if (options.translatedOnly && !alreadyTranslated) return false;
+    if (alreadyTranslated && !options.includeTranslated) return false;
+    if (hasTranslatedAncestor(element)) return false;
+    if (!options.includeTranslated && hasTranslatedDescendant(element)) return false;
+    if (options.visibleOnly !== false && state.settings.visibleOnly && !isElementNearViewport(element)) return false;
+    if (!isFormUiTranslationTarget(element)) return false;
+    const text = getElementSourceText(element);
+    if (!shouldTranslateFormUiText(text)) return false;
+    return text.length <= 180;
+  }
+
+  function isStructuredPageUiCandidateElement(element, options = {}) {
+    if (isTranslyOwned(element)) return false;
+    if (isSubtitleElement(element)) return false;
+    if (isSiteChromeElement(element)) return false;
+    const alreadyTranslated = element.hasAttribute(translatedAttribute);
+    if (options.translatedOnly && !alreadyTranslated) return false;
+    if (alreadyTranslated && !options.includeTranslated) return false;
+    if (hasTranslatedAncestor(element)) return false;
+    if (!options.includeTranslated && hasTranslatedDescendant(element)) return false;
+    if (options.visibleOnly !== false && state.settings.visibleOnly && !isElementNearViewport(element)) return false;
+    if (isSearchLikeFormControl(element)) return false;
+    if (isLikelyBrandElement(element)) return false;
+    const text = getElementSourceText(element);
+    if (!shouldTranslateStructuredUiText(text, element)) return false;
+    return text.length <= 220;
+  }
+
+  function shouldCollectStructuredPageUi() {
+    if (state.rule.id !== "default") return false;
+    const path = `${location.hostname} ${location.pathname}`.toLowerCase();
+    if (/(docs?|documentation|developer|api|reference|guide|account|console|dashboard|billing|keys?|settings|platform)/.test(path)) {
+      return true;
+    }
+    const hasStructuredShell = Boolean(document.querySelector("main")) && Boolean(document.querySelector("aside, table, [class*='toc' i], [class*='sidebar' i]"));
+    return hasStructuredShell;
+  }
+
+  function shouldTranslateStructuredUiText(text, element) {
+    const normalized = core.normalizeText(text);
+    if (!normalized || normalized.length < 2 || normalized.length > 220) return false;
+    if (/^[\d\s.,:;!?'"()[\]{}<>|/\\+\-*=_~`@#$%^&]+$/.test(normalized)) return false;
+    if (core.hasSensitiveText(normalized, state.settings)) return false;
+    if (/[\u3400-\u9fff]/u.test(normalized) && !/[A-Za-z]{3,}/.test(normalized)) return false;
+    if (element.closest("code, pre, kbd, samp") || element.querySelector("code, pre, kbd, samp")) return false;
+    if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(normalized)) return false;
+    if (/^[A-Za-z0-9_.-]{8,}$/.test(normalized) && !/\s/.test(normalized) && /[0-9._-]/.test(normalized)) return false;
+    if (/^[A-Fa-f0-9]{8,}$/.test(normalized)) return false;
+    if (/[A-Za-z]/.test(normalized)) return true;
+    return shouldTranslateText(normalized);
+  }
+
+  function isLikelyBrandElement(element) {
+    const text = core.normalizeText(getElementSourceText(element));
+    if (!text || text.length > 36) return false;
+    const container = element.closest("header, nav");
+    if (!container) return false;
+    if (element.matches("nav a, nav button")) return false;
+    if (element.id && /(brand|logo)/i.test(element.id)) return true;
+    if (typeof element.className === "string" && /(brand|logo)/i.test(element.className)) return true;
+    if (element.querySelector("img, svg")) return true;
+    return /^[A-Z][A-Za-z0-9]+(?:\s+[A-Z][A-Za-z0-9]+)?$/.test(text) && !/\b(API|Key|Account|Home|Documentation|Guide|Center)\b/i.test(text);
+  }
+
+  function shouldTranslateFormUiText(text) {
+    const normalized = core.normalizeText(text);
+    if (!normalized || normalized.length < 2 || normalized.length > 180) return false;
+    if (/^[\d\s.,:;!?'"()[\]{}<>|/\\+\-*=_~`@#$%^&]+$/.test(normalized)) return false;
+    if (core.hasSensitiveText(normalized, state.settings)) return false;
+    if (/[\u3400-\u9fff]/u.test(normalized) && !/[A-Za-z]{3,}/.test(normalized)) return false;
+    if (!/[A-Za-z]/.test(normalized)) return shouldTranslateText(normalized);
+    if (/^[._/@A-Za-z0-9-]+\/[._/@A-Za-z0-9-]+$/.test(normalized)) return false;
+    if (/^[A-Za-z0-9_.-]+$/.test(normalized) && normalized.length <= 3) return false;
+    return true;
+  }
+
+  function isFormUiTranslationTarget(element) {
+    const controlContext = element.closest("dialog, [role='dialog'], form, [role='listbox'], [role='menu'], [role='radiogroup']");
+    if (isPlaceholderTranslationTarget(element)) return Boolean(controlContext) && !isSearchLikeFormControl(element);
+    if (element.tagName === "OPTION") return true;
+    if (element.matches("[role='option']")) return true;
+    if (element.matches("label, button, [role='button'], [role='menuitem']")) return Boolean(controlContext);
+    if (element.closest("dialog, [role='dialog']") && isHeadingLikeElement(element)) return true;
+    return false;
+  }
+
+  function isPlaceholderTranslationTarget(element) {
+    return Boolean(element && element.hasAttribute("placeholder") && element.getAttribute("placeholder"));
+  }
+
+  function isSearchLikeFormControl(element) {
+    const text = core.normalizeText(element.getAttribute("placeholder") || element.getAttribute("aria-label") || "");
+    if (!element.matches("input, textarea, [placeholder], [role='searchbox']")) return false;
+    if (element.closest("header, nav, [role='search'], [type='search']")) return true;
+    return /^(search|find|type \/ to search|search documentation|find a repository)/i.test(text);
+  }
+
   function isSmartReadableElement(element) {
     if (isInteractiveControlElement(element)) return false;
     if (hasBlockLikeChildren(element)) return false;
@@ -798,6 +1028,15 @@
 
   function getElementSourceText(element) {
     if (!element) return "";
+    if (isPlaceholderTranslationTarget(element)) {
+      return core.normalizeText(
+        element.getAttribute(originalPlaceholderAttribute) ||
+        element.getAttribute("placeholder")
+      );
+    }
+    if (element.tagName === "OPTION") {
+      return core.normalizeText(element.getAttribute(originalTextAttribute) || element.textContent);
+    }
     const clone = element.cloneNode(true);
     clone.querySelectorAll(translyOwnedSelector).forEach((node) => node.remove());
     return core.normalizeText(clone.innerText || clone.textContent);
@@ -1180,6 +1419,7 @@
   }
 
   function applyTranslation(element, translation) {
+    if (applyFormAttributeTranslation(element, translation)) return;
     const mode = state.settings.displayMode;
     const sameLanguageBackground = core.getSameLanguageBackground(
       getElementSourceText(element),
@@ -1214,7 +1454,9 @@
       return;
     }
 
-    const wrapper = createTranslationWrapper(translation);
+    const wrapper = createTranslationWrapper(translation, {
+      compact: isCompactTranslationTarget(element)
+    });
     wrapper.setAttribute("data-transly-same-language-background", sameLanguageBackground);
 
     if (mode === "translation") {
@@ -1231,9 +1473,30 @@
     }
   }
 
-  function createTranslationWrapper(translation) {
+  function applyFormAttributeTranslation(element, translation) {
+    if (isPlaceholderTranslationTarget(element)) {
+      if (!element.hasAttribute(originalPlaceholderAttribute)) {
+        element.setAttribute(originalPlaceholderAttribute, element.getAttribute("placeholder") || "");
+      }
+      element.setAttribute("placeholder", translation);
+      element.setAttribute(translatedAttribute, "true");
+      return true;
+    }
+    if (element.tagName === "OPTION") {
+      if (!element.hasAttribute(originalTextAttribute)) {
+        element.setAttribute(originalTextAttribute, element.textContent || "");
+      }
+      element.textContent = translation;
+      element.setAttribute(translatedAttribute, "true");
+      return true;
+    }
+    return false;
+  }
+
+  function createTranslationWrapper(translation, options = {}) {
     const wrapper = document.createElement("span");
     wrapper.className = "transly-translation-wrapper";
+    if (options.compact) wrapper.classList.add("transly-compact-translation");
     wrapper.setAttribute("data-transly-owned", "true");
     wrapper.setAttribute("data-transly-theme", state.settings.translationTheme);
     applyCustomTranslationStyles(wrapper);
@@ -1245,6 +1508,16 @@
     translationNode.textContent = translation;
     wrapper.appendChild(translationNode);
     return wrapper;
+  }
+
+  function isCompactTranslationTarget(element) {
+    if (!element) return false;
+    const text = getElementSourceText(element);
+    if (text.length > 80) return false;
+    return Boolean(
+      element.matches("a, button, th, dt, summary, [role='button'], [role='menuitem'], [role='option']") ||
+      element.closest("header, nav, aside, [role='navigation'], [class*='toc' i], [class*='sidebar' i]")
+    );
   }
 
   function applyCustomTranslationStyles(element) {
@@ -1302,7 +1575,7 @@
       : null;
   }
 
-  function clearTranslations() {
+  function clearTranslations(options = {}) {
     state.runId += 1;
     state.pageTranslated = false;
     state.dynamicPending = false;
@@ -1310,6 +1583,9 @@
     document.querySelectorAll(".transly-translation-wrapper").forEach((node) => node.remove());
     document.querySelectorAll(".transly-translation").forEach((node) => node.remove());
     document.querySelectorAll(`[${translatedAttribute}]`).forEach((element) => {
+      if (element.hasAttribute(originalPlaceholderAttribute)) {
+        element.setAttribute("placeholder", element.getAttribute(originalPlaceholderAttribute));
+      }
       if (element.hasAttribute(originalHtmlAttribute)) {
         element.innerHTML = element.getAttribute(originalHtmlAttribute);
       } else if (element.hasAttribute(originalTextAttribute)) {
@@ -1322,6 +1598,7 @@
       element.removeAttribute(originalTextAttribute);
       element.removeAttribute(originalHtmlAttribute);
       element.removeAttribute(originalDisplayAttribute);
+      element.removeAttribute(originalPlaceholderAttribute);
       element.removeAttribute("data-transly-hover-text");
       element.removeAttribute("data-transly-error");
       element.removeAttribute("data-transly-theme");
@@ -1329,6 +1606,8 @@
       clearCustomTranslationStyles(element);
       element.classList.remove("transly-replaced", "transly-hoverable");
     });
+    if (options.persistSiteState) persistSiteTranslationState("original");
+    state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings) || isSiteTranslationActive();
     updatePanelState();
     setStatus(state.messages.cleared);
   }
@@ -1950,7 +2229,7 @@
   function shouldReactToMutations(mutations) {
     if (!state.settings.enabled || document.hidden) return false;
     if (ruleDynamicMode() === "off") return false;
-    if (!state.pageTranslated && !state.settings.autoTranslate && !state.autoTranslateActive) return false;
+    if (!isPageTranslationActive()) return false;
     return mutations.some((mutation) => {
       const nodes = mutation.type === "characterData"
         ? [mutation.target]
@@ -1972,6 +2251,7 @@
     if (isTranslyOwned(node)) return false;
     if (isInsideTranslatedElement(node)) return false;
     const contentOverride = isSiteContentOverrideElement(node);
+    if (isFormUiCandidateElement(node, { visibleOnly: false })) return true;
     if ((core.isSkippableElement(node, state.rule) || isSiteChromeElement(node)) && !contentOverride) return false;
     if (isCandidateElement(node, { visibleOnly: false })) return true;
     return Boolean(
@@ -2005,7 +2285,8 @@
         "[slot='body']",
         "[data-testid='post-title']",
         "[data-testid='comment-content']",
-        "a[href*='/comments/']"
+        "a[href*='/comments/']",
+        formUiSelector
       ])
     );
   }
@@ -2017,7 +2298,11 @@
     } catch (error) {
       return false;
     }
-    return elements.some((element) => isCandidateElement(element, { visibleOnly: false }));
+    return elements.some(
+      (element) =>
+        isCandidateElement(element, { visibleOnly: false }) ||
+        isFormUiCandidateElement(element, { visibleOnly: false })
+    );
   }
 
   function ruleDynamicMode() {
@@ -2049,14 +2334,14 @@
     if (state.lastUrl === location.href) return;
     state.lastUrl = location.href;
     state.rule = core.getSiteRule(location.href, state.settings.userRules);
-    state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings);
+    state.autoTranslateActive = shouldAutoTranslateCurrentPage(state.settings) || isSiteTranslationActive();
     scheduleDynamicTranslation(420);
   }
 
   function scheduleDynamicTranslation(delay) {
     if (!state.settings.enabled || document.hidden) return;
     if (ruleDynamicMode() === "off") return;
-    if (!state.pageTranslated && !state.settings.autoTranslate && !state.autoTranslateActive) return;
+    if (!isPageTranslationActive()) return;
     if (state.translating) {
       state.dynamicPending = true;
       return;
