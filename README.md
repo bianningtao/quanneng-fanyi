@@ -210,25 +210,3 @@ OpenAI-compatible 引擎可配置 `/chat/completions` 地址，插件会发送 `
 │   ├── popup.html
 │   └── sidepanel.html
 ```
-
-本地开发记录和验证脚本保存在工作区的 `process/`、`tests/` 目录中，这两个目录默认不提交到远端。
-
-## 打包发布
-
-```bash
-scripts/generate-icons.sh
-scripts/package-extension.sh
-```
-
-打包产物会生成到 `dist/`：
-
-- `quanneng-fanyi-v0.1.2.zip`
-- `quanneng-fanyi-v0.1.2.zip.sha256`
-
-发布到 GitHub Release 时，将 zip 和 sha256 文件作为附件上传即可。
-
-### Release 规则
-
-- 每次更新 Release 都必须新建一个版本号和对应 tag，例如从 `v0.1.1` 升到 `v0.1.2`。
-- 新版本发布后需要标注为 GitHub 最新版，也就是非 draft、非 prerelease 的 Latest release。
-- 旧版本 Release 和附件必须保留，不删除、不覆盖，方便回退和历史下载。
