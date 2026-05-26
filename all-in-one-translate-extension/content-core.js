@@ -553,6 +553,8 @@
         ".markdown-body h1",
         ".markdown-body h2",
         ".markdown-body h3",
+        ".markdown-body table th",
+        ".markdown-body table td",
         "main section h2",
         "main section h3:not(:has(a))",
         "main p",

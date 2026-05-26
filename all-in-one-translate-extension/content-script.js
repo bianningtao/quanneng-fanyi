@@ -952,7 +952,7 @@
     if (options.fallback && !isReadableFallbackElement(element)) return false;
     if (options.visibleOnly !== false && state.settings.visibleOnly && !isElementNearViewport(element)) return false;
     const text = getElementSourceText(element);
-    if (!shouldTranslateText(text)) return false;
+    if (!shouldTranslateText(text) && !(isMarkdownTableCell(element) && shouldTranslateStructuredUiText(text, element))) return false;
     if (element.children.length > 8 && text.length > 1200) return false;
     return true;
   }
@@ -1128,6 +1128,10 @@
         element.getAttribute("aria-label")
       ].join(" ")
     );
+  }
+
+  function isMarkdownTableCell(element) {
+    return Boolean(element && ["TD", "TH"].includes(element.tagName) && element.closest(".markdown-body table"));
   }
 
   function looksLikeUiLabel(text, element) {
